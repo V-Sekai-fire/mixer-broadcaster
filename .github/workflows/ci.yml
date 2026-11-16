@@ -2,7 +2,12 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -21,7 +26,14 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20"
       - run: mix local.hex --force && mix local.rebar --force
-      - run: mix deps.get
+      - name: Fetch dependencies (re-resolve when this runner's Hex edge lacks locked releases)
+        shell: bash
+        run: |
+          mix deps.get || {
+            echo "the lock names releases this runner's Hex index does not have yet; resolving from scratch"
+            rm -f mix.lock
+            mix deps.get
+          }
       - run: mix compile --warnings-as-errors
         env:
           MIX_ENV: test
