@@ -28,15 +28,20 @@ defmodule MixerBroadcaster.Client do
     end
   end
 
-  defp send_fin(session, stream, packet, true), do: :webtransport.send(session, stream, packet, :fin)
+  defp send_fin(session, stream, packet, true),
+    do: :webtransport.send(session, stream, packet, :fin)
+
   defp send_fin(session, stream, packet, false), do: :webtransport.send(session, stream, packet)
 
-  def send_unreliable(session, packet) when is_binary(packet), do: :webtransport.send_datagram(session, packet)
+  def send_unreliable(session, packet) when is_binary(packet),
+    do: :webtransport.send_datagram(session, packet)
 
   @doc "Collect the reply on `stream` until `expected` bytes arrived or `timeout` ms passed."
-  def recv_reliable(session, stream, expected, timeout \\ 5_000), do: collect(session, stream, expected, <<>>, timeout)
+  def recv_reliable(session, stream, expected, timeout \\ 5_000),
+    do: collect(session, stream, expected, <<>>, timeout)
 
-  defp collect(_session, _stream, expected, acc, _timeout) when byte_size(acc) >= expected, do: {:ok, acc}
+  defp collect(_session, _stream, expected, acc, _timeout) when byte_size(acc) >= expected,
+    do: {:ok, acc}
 
   defp collect(session, stream, expected, acc, timeout) do
     receive do

@@ -25,6 +25,7 @@ defmodule MixerBroadcaster.MixProject do
       {:bandit, "~> 1.5"},
       {:plug, "~> 1.16"},
       # Property-based testing (Elixir's counterpart of Hypothesis)
+      {:cbor, "~> 1.0"},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
   end
