@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ColorChecker, three.js client</title>
+<style>
+  body { margin: 0; background: #202020; color: #ddd; font: 13px system-ui; }
+  #hud { position: fixed; left: 8px; top: 8px; }
+  canvas { display: block; }
+</style>
+<div id="hud">room <b id="room"></b> · <span id="state">connecting</span> · <span id="log"></span></div>
+<canvas id="c" width="800" height="560"></canvas>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.170.0/build/three.module.js";
+
+// The same chart as entities-model-explorer ColorChart.gd: 6x4 patches, a board, a lit chart over a flat one.
+const CHART_W = 0.16, CHART_H = 0.107;
+const room = new URLSearchParams(location.search).get("room") || "hypo";
+document.getElementById("room").textContent = room;
+const $ = (id) => document.getElementById(id);
+
+const renderer = new THREE.WebGLRenderer({ canvas: $("c"), antialias: false, preserveDrawingBuffer: true });
+renderer.toneMapping = THREE.NoToneMapping;           // flat patches must come out as the sRGB bytes
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x303030);
+const camera = new THREE.PerspectiveCamera(30, 800 / 560, 0.01, 10);
+camera.position.set(0, 0, 0.62);
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(0.3, 0.5, 1);
+scene.add(new THREE.AmbientLight(0xffffff, 1.0), sun);
+
+const board = new THREE.Mesh(new THREE.BoxGeometry(CHART_W * 1.12, CHART_H * 2.24, CHART_W * 0.04),
+  new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.1, 0.1, 0.1, THREE.SRGBColorSpace) }));
+board.position.z = -CHART_W * 0.04 * 0.525;
+scene.add(board);
+
+const pw = CHART_W / 6, ph = CHART_H / 4;
+const patches = { lit: [], flat: [] };
+for (const kind of ["lit", "flat"]) {
+  const y0 = kind === "lit" ? CHART_H * 0.56 : -CHART_H * 0.56;
+  for (let i = 0; i < 24; i++) {
+    const mat = kind === "lit" ? new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0 }) : new THREE.MeshBasicMaterial();
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(pw * 0.92, ph * 0.92), mat);
+    m.position.set(-CHART_W / 2 + pw * (i % 6 + 0.5), y0 + CHART_H / 2 - ph * (Math.floor(i / 6) + 0.5), 0.0005);
+    scene.add(m);
+    patches[kind].push(m);
+  }
+}
+const rgbOf = Array.from({ length: 24 }, () => [0, 0, 0]);
+function paint(i, rgb) {
+  rgbOf[i] = rgb;
+  for (const kind of ["lit", "flat"]) patches[kind][i].material.color.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
+}
+function draw() { renderer.render(scene, camera); }
+
+// Rendered pixel at the centre of a patch (flat row), read back from the canvas.
+window.__flatPixels = () => {
+  draw();
+  const gl = renderer.getContext(), out = [];
+  const v = new THREE.Vector3();
+  for (let i = 0; i < 24; i++) {
+    patches.flat[i].getWorldPosition(v).project(camera);
+    const x = Math.round((v.x * 0.5 + 0.5) * 800), y = Math.round((v.y * 0.5 + 0.5) * 560);
+    const px = new Uint8Array(4);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    out.push([px[0], px[1], px[2]]);
+  }
+  return out;
+};
+window.__chart = () => rgbOf.map((c) => c.slice());
+
+// ---- transport: HTTP/3 WebTransport only ----
+let wt;
+const enc = new TextEncoder(), dec = new TextDecoder();
+async function send(obj) {                                   // reliable: one bidi stream per message, sent with FIN
+  const s = await wt.createBidirectionalStream();
+  const w = s.writable.getWriter();
+  await w.write(enc.encode(JSON.stringify(obj)));
+  await w.close();
+  const r = s.readable.getReader();
+  const { value } = await r.read();
+  return value ? dec.decode(value) : "";
+}
+window.__set = (id, rgb) => send({ t: "set", id, rgb });
+function apply(msg) {
+  if (msg.t === "snapshot") msg.patches.forEach((c, i) => paint(i, c));
+  else if (msg.t === "set") paint(msg.id, msg.rgb);
+  draw();
+  $("log").textContent = msg.t + (msg.id !== undefined ? " " + msg.id : "");
+}
+async function main() {
+  const info = await (await fetch("/connection")).json();
+  wt = new WebTransport(`https://127.0.0.1:${info.wt_port}/room/${room}`, {
+    serverCertificateHashes: [{ algorithm: "sha-256", value: new Uint8Array(info.cert_sha256) }],
+  });
+  await wt.ready;
+  $("state").textContent = "connected";
+  (async () => {                                             // hub to client: datagrams
+    const r = wt.datagrams.readable.getReader();
+    for (;;) { const { value, done } = await r.read(); if (done) return; apply(JSON.parse(dec.decode(value))); }
+  })();
+  // late join: ask for the current chart; a datagram can be lost, so ask again until it arrives
+  const hello = async () => { await send({ t: "hello" }).catch(() => {}); };
+  for (let i = 0; i < 20 && !rgbOf.some((c) => c[0] || c[1] || c[2]); i++) { await hello(); await new Promise((r) => setTimeout(r, 150)); }
+  window.__ready = true;
+}
+window.addEventListener("error", (e) => { window.__error = String(e.message); $("state").textContent = "error: " + e.message; });
+main().catch((e) => { $("state").textContent = "failed: " + e; window.__error = String(e); });
+</script>

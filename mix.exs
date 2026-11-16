@@ -8,6 +8,7 @@ defmodule MixerBroadcaster.MixProject do
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: [demo: &demo/1],
       description: "Broadcaster for Mixer: HTTP/3 WebTransport is the only network protocol.",
       licenses: ["MIT"]
     ]
@@ -21,8 +22,18 @@ defmodule MixerBroadcaster.MixProject do
     [
       # Pure Erlang WebTransport over HTTP/3 (Apache-2.0); no Rust or C toolchain
       {:webtransport, "~> 0.5"},
+      {:bandit, "~> 1.5"},
+      {:plug, "~> 1.16"},
       # Property-based testing (Elixir's counterpart of Hypothesis)
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
+  end
+
+  defp demo(_args) do
+    Mix.Task.run("app.start")
+    Logger.configure(level: String.to_atom(System.get_env("MB_LOG") || "info"))
+    {:ok, info} = MixerBroadcaster.Demo.start()
+    IO.puts("hub on https://localhost:#{info.wt_port}/room/<name>   page on http://localhost:#{info.web_port}/")
+    Process.sleep(:infinity)
   end
 end

@@ -5,6 +5,11 @@ defmodule MixerBroadcaster.Application do
   @impl true
   def start(_type, _args) do
     # The WebTransport listener is started on demand by MixerBroadcaster.Server.start/1
-    Supervisor.start_link([], strategy: :one_for_one, name: MixerBroadcaster.Supervisor)
+    children = [
+      {Registry, keys: :duplicate, name: MixerBroadcaster.Registry},
+      MixerBroadcaster.Rooms
+    ]
+
+    Supervisor.start_link(children, strategy: :one_for_one, name: MixerBroadcaster.Supervisor)
   end
 end
