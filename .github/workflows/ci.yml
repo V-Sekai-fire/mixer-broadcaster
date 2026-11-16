@@ -18,8 +18,8 @@ jobs:
       # setup-beam rather than pixi: conda-forge has no Erlang for win-64 and the matrix must include Windows
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
-          elixir-version: "1.19"
+          otp-version: "29"
+          elixir-version: "1.20"
       - run: mix local.hex --force && mix local.rebar --force
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
