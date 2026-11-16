@@ -5,7 +5,7 @@ defmodule MixerBroadcaster.MixProject do
     [
       app: :mixer_broadcaster,
       version: "0.1.0",
-      elixir: "~> 1.20",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Broadcaster for Mixer: HTTP/3 WebTransport is the only network protocol.",
