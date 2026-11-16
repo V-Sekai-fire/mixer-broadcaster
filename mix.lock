@@ -1,0 +1,7 @@
+%{
+  "h2": {:hex, :h2, "0.18.0", "1f6b488556e7410b1b341517b720b67e39d0279d73fdca71efc8d4b6c9cd20fa", [:rebar3], [], "hexpm", "11824e2963716b1df80a1f2c6c1eb31e67bf2176931e6fbc74c362e0f872539a"},
+  "idna": {:hex, :idna, "8.0.0", "bb8795a18aadce07dce6a3928c4fcae74ac66eaf95186b46ea11598bccc719f9", [:rebar3], [], "hexpm", "e0c5ce7846f14515af66142a55b8097d5f46d10df9235e781f168bef5622bcf9"},
+  "quic": {:hex, :quic, "3.1.0", "be5811bd1199906ea4c6d54dc8c115a5ec97df9d469085f179b2f299e734529c", [:rebar3], [{:idna, "~> 8.0", [hex: :idna, repo: "hexpm", optional: false]}], "hexpm", "3f70147cdc6c5bb3df2c08d4c04c7263620d59069fa5a38ff7d946451f13b265"},
+  "stream_data": {:hex, :stream_data, "1.4.0", "026f929db613aabea6208012ae9b8970d3fd5f88b3bdf26831bc536f98c42036", [:mix], [], "hexpm", "2b0ee3a340dcce1c8cf6302a763ee757d1e01c54d6e16d9069062509d68b1dc9"},
+  "webtransport": {:hex, :webtransport, "0.5.11", "8b9d05c44805e66dff23f19056f7af70700a664f1872aa098e0dcec634cadbe3", [:rebar3], [{:h2, "~> 0.18.0", [hex: :h2, repo: "hexpm", optional: false]}, {:quic, "~> 3.1.0", [hex: :quic, repo: "hexpm", optional: false]}], "hexpm", "b4c4a9c3ca0b8eb77f7d86bfe1b89fd0619c7f6b07f9533fda85e019c04dab19"},
+}
