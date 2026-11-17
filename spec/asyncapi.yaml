@@ -14,7 +14,7 @@ asyncapi: 3.1.0
 
 info:
   title: Mixer relay
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     Rooms of 100-byte entity packets and the relay's command protocol, over HTTP/3 WebTransport. Zero trust: a session
     is admitted with a token, the player's key and a signature over a nonce from the relay before it is put in a room.

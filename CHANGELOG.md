@@ -51,3 +51,14 @@ New checks in `test/asyncapi_test.exs`, each shown to fail on a planted fault: e
 match the allowed pattern, an operation's and its reply's messages are among their channel's, everything outside
 `components` is used, a channel address names exactly its parameters, an HTTP reply has a status code, and an example of
 any message fits that message and no other on its channel. All frontier levels stay n/n.
+
+## Frontier iteration 4: field by field
+
+Compared every object of the document with the fixed fields the AsyncAPI 3.1.0 text lists for it. The document had no
+field the specification does not define, no URL in a `host`, no query or fragment in an address, and no reference with
+extra fields, so the only change to the spec is `info.version` (0.2.0 to 0.3.0), because the channel layout changed in
+iterations 2 and 3. New tests in `test/asyncapi_test.exs`, each rule shown to fail on a planted fault (a misspelt
+operation field, a URL as a host, a query in an address): only defined fields or `x-` extensions, the required fields,
+a specific media type for `contentType`, empty reserved HTTP server and channel bindings, HTTP operation and message
+bindings limited to their defined fields, a reference holds only `$ref`, and root operations and channels point at the
+root. Not covered: Security Scheme objects, because admission is an in-protocol handshake (token, key, signed nonce).
