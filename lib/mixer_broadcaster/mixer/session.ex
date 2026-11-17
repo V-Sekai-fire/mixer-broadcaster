@@ -122,7 +122,7 @@ defmodule MixerBroadcaster.Mixer.Session do
 
   defp error_packet(reason) do
     {:ok, pkt} =
-      Command.pack(Wire.type(:send_error), "bad command packet: #{reason}", 0, 0, &Store.put/1)
+      Command.pack(Wire.type(:send_error), Wire.string("bad command packet: #{reason}"), 0, 0, &Store.put/1)
 
     pkt
   end

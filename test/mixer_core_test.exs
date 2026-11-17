@@ -4,7 +4,7 @@
 
 defmodule MixerBroadcaster.Mixer.CoreTest do
   @moduledoc """
-  GOLDEN: a creator, a late joiner and a client outside the room go through a Mixer session the way the Python server
+  GOLDEN: a creator, a late joiner and a client outside the room go through a Mixer session the way the spec says
   runs it: create, content, join with replay, forward, leave, delete.
   INVARIANT: for any run of commands, the late joiner receives exactly the room's stored commands in order; an entity's
   newest pose replaces its older ones and a remove drops it; nothing is ever sent to a client that is not connected; a

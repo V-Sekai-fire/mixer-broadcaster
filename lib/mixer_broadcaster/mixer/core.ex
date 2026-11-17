@@ -4,9 +4,9 @@
 
 defmodule MixerBroadcaster.Mixer.Core do
   @moduledoc """
-  The Mixer server's rules, as a pure state machine: `handle(state, client_id, command)` returns the new state and the
-  commands to send, as `{client_id, command_bytes}`. No process, no socket, no clock. It follows
-  `mixer/broadcaster/apps/server.py` (the Python server this relay replaces):
+  The relay's command rules, as a pure state machine: `handle(state, client_id, command)` returns the new state and the
+  commands to send, as `{client_id, command_bytes}`. No process, no socket, no clock. The rules are written in
+  `spec/asyncapi.yaml` and held to this module by `test/asyncapi_test.exs`:
 
     * a client creates a room by joining a name nobody has; the creator sends the room's content, then `CONTENT`
       makes the room joinable

@@ -3,3 +3,5 @@
 # SPDX-License-Identifier: MIT
 
 ExUnit.start()
+
+Mox.defmock(MixerBroadcaster.BlobMock, for: MixerBroadcaster.Mixer.Store.BlobAccess)

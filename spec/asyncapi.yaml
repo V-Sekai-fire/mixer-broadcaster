@@ -1,0 +1,867 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
+# The interface of the Mixer relay, as one AsyncAPI 3.1 document, and the whole of it: every path, every message, every
+# error. The relay speaks HTTP/3 WebTransport only; the demo pages are the one plain-HTTP exception and are listed
+# apart. AsyncAPI has no WebTransport binding, so what it cannot say lives in two extensions:
+#   `x-webtransport`  a "reliable" message is one bidirectional stream sent with FIN, an "unreliable" one is a QUIC
+#                     datagram;
+#   `x-wire`          how a command's data is laid out, field by field, so a client and the tests can encode and decode
+#                     it from this document alone (kinds: string, bool, json, raw, bytes).
+# `test/asyncapi_test.exs` holds the real relay to this document, in both directions.
+asyncapi: 3.1.0
+
+info:
+  title: Mixer relay
+  version: 0.2.0
+  description: >-
+    Rooms of 100-byte entity packets and the relay's command protocol, over HTTP/3 WebTransport. Zero trust: a session
+    is admitted with a token, the player's key and a signature over a nonce from the relay before it is put in a room.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+
+defaultContentType: application/json
+
+servers:
+  relay:
+    host: relay.example:4433
+    protocol: webtransport
+    protocolVersion: h3
+    description: The relay. `MB_SERVE=1` makes it closed (auth required); the open demo hub is for local use only.
+    bindings:
+      x-webtransport:
+        origins: Browsers must send an allowed Origin; clients that send none are accepted.
+        allowedOrigins: ['http://localhost:4000', 'http://127.0.0.1:4000']  # the defaults; MB_ORIGINS replaces them
+        rejectStatus: 403
+        certificate: Self-signed certificates are pinned by SHA-256 hash (valid at most 14 days for browsers).
+    x-environment:
+      MB_SERVE: '1 starts the closed relay: auth required, no demo. It does not start without MB_ROOT_KEY.'
+      MB_ROOT_KEY: 64 hex characters, the macaroon root every token is verified against.
+      MB_WT_PORT: The WebTransport port, UDP (default 4433).
+      MB_BIND: A host name to bind to (Fly UDP needs `fly-global-services`).
+      MB_HOST: The name in the certificate (default localhost).
+      MB_ORIGINS: Browser origins let in, comma separated. Empty by default, so no browser page is let in.
+      MB_CERT_PEM: A fixed certificate; with MB_KEY_PEM it replaces the generated one.
+      MB_KEY_PEM: The private key of MB_CERT_PEM.
+      MB_COMPAT: 'Which WebTransport drafts the demo hub accepts: latest, legacy_browser_compat or auto.'
+      MB_LOSS: 'Drop datagrams on purpose, for tests of lossy links: off, wifi, bad_wifi, lte or a number from 0 to 1.'
+      MB_LOSS_SEED: Fixes the seed of MB_LOSS, so a run repeats.
+      MB_STORE: '`s3` keeps command bulk data and meshes in an S3 gateway; anything else keeps them in memory.'
+      MB_S3: The S3 gateway endpoint.
+      MB_S3_BUCKET: The bucket.
+      AWS_ACCESS_KEY_ID: Signs S3 requests.
+      AWS_SECRET_ACCESS_KEY: Signs S3 requests.
+  demo:
+    host: localhost:4000
+    protocol: http
+    protocolVersion: '1.1'
+    description: Demo only. The production relay serves WebTransport and nothing else, so it answers none of this.
+  echo:
+    host: localhost:4433
+    protocol: webtransport
+    protocolVersion: h3
+    description: The bare transport (the test and benchmark handler), which the relay itself does not start.
+
+channels:
+  room:
+    address: /room/{room}
+    servers:
+      - $ref: '#/servers/relay'
+    parameters:
+      room:
+        description: The room name. A path that does not match puts the session in `default`.
+    description: >-
+      A room hub. Control messages are JSON, one per reliable stream (the reply comes back on the same stream, with
+      FIN) or one per datagram. A request that came as a datagram is answered as datagrams: any JSON reply, except the
+      `ok` and `bad_packet` an unanswered pose would draw, and a mesh reply too big for one datagram is cut (`meshMore`).
+      A pose is exactly one 100-byte entity packet and is forwarded to the other sessions
+      of the room as a datagram. Nothing a session sends reaches a room it is not in. A session that joins late gets
+      the last packet of every entity in the room, three times, 250 ms apart, except an entity it already heard live.
+    bindings:
+      x-webtransport:
+        reliable: one bidirectional stream per message, sent with FIN
+        unreliable: QUIC datagram
+    messages:
+      hello: {$ref: '#/components/messages/hello'}
+      challenge: {$ref: '#/components/messages/challenge'}
+      auth: {$ref: '#/components/messages/auth'}
+      ready: {$ref: '#/components/messages/ready'}
+      set: {$ref: '#/components/messages/set'}
+      snapshot: {$ref: '#/components/messages/snapshot'}
+      mesh: {$ref: '#/components/messages/mesh'}
+      meshGrant: {$ref: '#/components/messages/meshGrant'}
+      meshMore: {$ref: '#/components/messages/meshMore'}
+      ok: {$ref: '#/components/messages/ok'}
+      error: {$ref: '#/components/messages/error'}
+      entityPacket: {$ref: '#/components/messages/entityPacket'}
+
+  commands:
+    address: /mixer
+    servers:
+      - $ref: '#/servers/relay'
+    description: >-
+      The command protocol. The door is the same JSON `hello`, `auth` and `ready` as a room's, but the proof is not
+      bound to a room: each `joinRoom` is checked against the token on its own. After admission one bidirectional
+      stream carries commands, each exactly one 100-byte packet of class `command` (128), back to back; a partial
+      packet waits for the rest, and the relay answers on the stream the client sent its first command on. Poses ride
+      in datagrams. A packet the relay cannot read, and a command it refuses, is answered with `sendErrorOut`, never
+      a crash. Every command has a type number and data laid out by its `x-wire`; a type above 100 that is not listed
+      is a room command, stored for late joiners and forwarded to the room's other members. Data too big for the chunk
+      store goes by desync index (a mode 2 command: the SHA-256 of the index, as a mesh is named); the relay never reads
+      it and carries it as `mixer-index:` || the 32-byte digest || the sender's key (u32, little-endian).
+    bindings:
+      x-webtransport:
+        reliable: commands on one bidirectional stream, 100-byte packets back to back
+        unreliable: poses as datagrams
+    messages:
+      hello: {$ref: '#/components/messages/hello'}
+      challenge: {$ref: '#/components/messages/challenge'}
+      auth: {$ref: '#/components/messages/auth'}
+      ready: {$ref: '#/components/messages/ready'}
+      error: {$ref: '#/components/messages/error'}
+      joinRoom: {$ref: '#/components/messages/joinRoom'}
+      joinRoomOk: {$ref: '#/components/messages/joinRoomOk'}
+      leaveRoom: {$ref: '#/components/messages/leaveRoom'}
+      leaveRoomOk: {$ref: '#/components/messages/leaveRoomOk'}
+      listRooms: {$ref: '#/components/messages/listRooms'}
+      roomList: {$ref: '#/components/messages/roomList'}
+      listClients: {$ref: '#/components/messages/listClients'}
+      clientList: {$ref: '#/components/messages/clientList'}
+      content: {$ref: '#/components/messages/content'}
+      contentOffer: {$ref: '#/components/messages/contentOffer'}
+      clearContent: {$ref: '#/components/messages/clearContent'}
+      deleteRoom: {$ref: '#/components/messages/deleteRoom'}
+      roomDeleted: {$ref: '#/components/messages/roomDeleted'}
+      setClientName: {$ref: '#/components/messages/setClientName'}
+      setClientCustomAttributes: {$ref: '#/components/messages/setClientCustomAttributes'}
+      setRoomCustomAttributes: {$ref: '#/components/messages/setRoomCustomAttributes'}
+      setRoomKeepOpen: {$ref: '#/components/messages/setRoomKeepOpen'}
+      clientIdRequest: {$ref: '#/components/messages/clientIdRequest'}
+      clientIdReply: {$ref: '#/components/messages/clientIdReply'}
+      clientUpdate: {$ref: '#/components/messages/clientUpdate'}
+      roomUpdate: {$ref: '#/components/messages/roomUpdate'}
+      clientDisconnected: {$ref: '#/components/messages/clientDisconnected'}
+      sendError: {$ref: '#/components/messages/sendError'}
+      sendErrorOut: {$ref: '#/components/messages/sendErrorOut'}
+      roomCommand: {$ref: '#/components/messages/roomCommand'}
+      roomCommandOut: {$ref: '#/components/messages/roomCommandOut'}
+      unknownCommand: {$ref: '#/components/messages/unknownCommand'}
+      entityPacket: {$ref: '#/components/messages/entityPacket'}
+
+  rooms:
+    address: /rooms
+    servers:
+      - $ref: '#/servers/demo'
+    messages:
+      roomListHttp: {$ref: '#/components/messages/roomListHttp'}
+  connection:
+    address: /connection
+    servers:
+      - $ref: '#/servers/demo'
+    messages:
+      connectionInfo: {$ref: '#/components/messages/connectionInfo'}
+  home:
+    address: /
+    servers:
+      - $ref: '#/servers/demo'
+    messages:
+      page: {$ref: '#/components/messages/page'}
+  geo:
+    address: /geo
+    servers:
+      - $ref: '#/servers/demo'
+    messages:
+      page: {$ref: '#/components/messages/page'}
+  usd:
+    address: /usd/{file}
+    servers:
+      - $ref: '#/servers/demo'
+    parameters:
+      file:
+        description: A mesh the publisher extracted, named `<64 hex digits>.usda`. Any other name is `notFound`.
+    messages:
+      usdFile: {$ref: '#/components/messages/usdFile'}
+      notFound: {$ref: '#/components/messages/notFound'}
+  echo:
+    address: /
+    servers:
+      - $ref: '#/servers/echo'
+    description: Any bidirectional stream is sent back as it came, and any datagram is sent back as a datagram.
+    messages:
+      echoBytes: {$ref: '#/components/messages/echoBytes'}
+
+operations:
+  roomHello:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/hello'}]
+    summary: Ask for a nonce (before admission) or for the current chart (after). Sent on a stream, the snapshot is also sent as a datagram.
+    reply:
+      channel: {$ref: '#/channels/room'}
+      messages:
+        - $ref: '#/channels/room/messages/challenge'
+        - $ref: '#/channels/room/messages/snapshot'
+        - $ref: '#/channels/room/messages/error'
+  roomHelloDatagram:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/hello'}]
+    summary: The same `hello` as a datagram. A request that came as a datagram is answered as datagrams (a stream reply is never sent), so the snapshot comes back as a datagram.
+    bindings:
+      x-webtransport: {delivery: datagram}
+  roomAuth:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/auth'}]
+    summary: Prove the key. Every refusal reads the same, and the third failed attempt locks the session.
+    reply:
+      channel: {$ref: '#/channels/room'}
+      messages:
+        - $ref: '#/channels/room/messages/ready'
+        - $ref: '#/channels/room/messages/error'
+  roomSet:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/set'}]
+    summary: Change one patch of the chart; the other sessions of the room get the same message as a datagram.
+    reply:
+      channel: {$ref: '#/channels/room'}
+      messages:
+        - $ref: '#/channels/room/messages/ok'
+        - $ref: '#/channels/room/messages/error'
+  roomSetDatagram:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/set'}]
+    summary: The same `set` as a datagram. It is applied and forwarded; its `ok` is dropped, but a refusal comes back as a datagram.
+    bindings:
+      x-webtransport: {delivery: datagram}
+  roomMesh:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/mesh'}]
+    summary: Ask for presigned URLs of a mesh a pose in this room names. Needs the `read` right.
+    reply:
+      channel: {$ref: '#/channels/room'}
+      messages:
+        - $ref: '#/channels/room/messages/meshGrant'
+        - $ref: '#/channels/room/messages/meshMore'
+        - $ref: '#/channels/room/messages/error'
+  roomPose:
+    action: receive
+    channel: {$ref: '#/channels/room'}
+    messages: [{$ref: '#/channels/room/messages/entityPacket'}]
+    summary: A pose. The relay stamps its hybrid logical clock and forwards it to the room. On a stream it is answered `ok` or `bad_packet`; as a datagram, neither is answered.
+    reply:
+      channel: {$ref: '#/channels/room'}
+      messages:
+        - $ref: '#/channels/room/messages/ok'
+        - $ref: '#/channels/room/messages/error'
+  roomPoseOut:
+    action: send
+    channel: {$ref: '#/channels/room'}
+    messages:
+      - $ref: '#/channels/room/messages/entityPacket'
+      - $ref: '#/channels/room/messages/set'
+    summary: What the other sessions of the room receive, and what a late joiner gets replayed.
+  commandsHello:
+    action: receive
+    channel: {$ref: '#/channels/commands'}
+    messages: [{$ref: '#/channels/commands/messages/hello'}]
+    reply:
+      channel: {$ref: '#/channels/commands'}
+      messages:
+        - $ref: '#/channels/commands/messages/challenge'
+        - $ref: '#/channels/commands/messages/error'
+  commandsAuth:
+    action: receive
+    channel: {$ref: '#/channels/commands'}
+    messages: [{$ref: '#/channels/commands/messages/auth'}]
+    reply:
+      channel: {$ref: '#/channels/commands'}
+      messages:
+        - $ref: '#/channels/commands/messages/ready'
+        - $ref: '#/channels/commands/messages/error'
+  receiveCommand:
+    action: receive
+    channel: {$ref: '#/channels/commands'}
+    summary: A command from an admitted client, one 100-byte packet.
+    messages:
+      - $ref: '#/channels/commands/messages/joinRoom'
+      - $ref: '#/channels/commands/messages/leaveRoom'
+      - $ref: '#/channels/commands/messages/listRooms'
+      - $ref: '#/channels/commands/messages/listClients'
+      - $ref: '#/channels/commands/messages/content'
+      - $ref: '#/channels/commands/messages/deleteRoom'
+      - $ref: '#/channels/commands/messages/setClientName'
+      - $ref: '#/channels/commands/messages/setClientCustomAttributes'
+      - $ref: '#/channels/commands/messages/setRoomCustomAttributes'
+      - $ref: '#/channels/commands/messages/setRoomKeepOpen'
+      - $ref: '#/channels/commands/messages/clientIdRequest'
+      - $ref: '#/channels/commands/messages/sendError'
+      - $ref: '#/channels/commands/messages/roomCommand'
+      - $ref: '#/channels/commands/messages/unknownCommand'
+  sendCommand:
+    action: send
+    channel: {$ref: '#/channels/commands'}
+    summary: What the relay sends to a client, one 100-byte packet each.
+    messages:
+      - $ref: '#/channels/commands/messages/joinRoomOk'
+      - $ref: '#/channels/commands/messages/leaveRoomOk'
+      - $ref: '#/channels/commands/messages/roomList'
+      - $ref: '#/channels/commands/messages/clientList'
+      - $ref: '#/channels/commands/messages/contentOffer'
+      - $ref: '#/channels/commands/messages/clearContent'
+      - $ref: '#/channels/commands/messages/roomDeleted'
+      - $ref: '#/channels/commands/messages/clientIdReply'
+      - $ref: '#/channels/commands/messages/clientUpdate'
+      - $ref: '#/channels/commands/messages/roomUpdate'
+      - $ref: '#/channels/commands/messages/clientDisconnected'
+      - $ref: '#/channels/commands/messages/sendErrorOut'
+      - $ref: '#/channels/commands/messages/roomCommandOut'
+  commandsPose:
+    action: receive
+    channel: {$ref: '#/channels/commands'}
+    messages: [{$ref: '#/channels/commands/messages/entityPacket'}]
+    summary: A pose as a datagram, stamped and passed to the other clients of the room. Anything but 100 bytes is ignored.
+    bindings:
+      x-webtransport: {delivery: datagram}
+  commandsPoseOut:
+    action: send
+    channel: {$ref: '#/channels/commands'}
+    messages: [{$ref: '#/channels/commands/messages/entityPacket'}]
+    summary: A pose from another client of the room, as a datagram.
+    bindings:
+      x-webtransport: {delivery: datagram}
+  demoRooms:
+    action: receive
+    channel: {$ref: '#/channels/rooms'}
+    messages: [{$ref: '#/channels/rooms/messages/roomListHttp'}]
+    summary: Demo only. The rooms with a player in them or a remembered entity.
+    bindings:
+      http: {method: GET}
+  demoConnection:
+    action: receive
+    channel: {$ref: '#/channels/connection'}
+    messages: [{$ref: '#/channels/connection/messages/connectionInfo'}]
+    summary: Demo only. What a browser needs to reach the relay (port and certificate hash).
+    bindings:
+      http: {method: GET}
+  demoHome:
+    action: receive
+    channel: {$ref: '#/channels/home'}
+    messages: [{$ref: '#/channels/home/messages/page'}]
+    summary: Demo only. The three.js client.
+    bindings:
+      http: {method: GET}
+  demoGeo:
+    action: receive
+    channel: {$ref: '#/channels/geo'}
+    messages: [{$ref: '#/channels/geo/messages/page'}]
+    summary: Demo only. The mesh viewer.
+    bindings:
+      http: {method: GET}
+  demoUsd:
+    action: receive
+    channel: {$ref: '#/channels/usd'}
+    messages:
+      - $ref: '#/channels/usd/messages/usdFile'
+      - $ref: '#/channels/usd/messages/notFound'
+    summary: Demo only. An extracted mesh by the SHA-256 of its desync index.
+    bindings:
+      http: {method: GET}
+  echoStream:
+    action: receive
+    channel: {$ref: '#/channels/echo'}
+    messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
+    reply:
+      channel: {$ref: '#/channels/echo'}
+      messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
+  echoDatagram:
+    action: receive
+    channel: {$ref: '#/channels/echo'}
+    messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
+    bindings:
+      x-webtransport: {delivery: datagram}
+
+components:
+  messages:
+    hello:
+      name: hello
+      summary: Ask for a nonce, or for the chart.
+      payload: {$ref: '#/components/schemas/hello'}
+      examples:
+        - payload: {t: hello}
+    challenge:
+      name: challenge
+      summary: A fresh nonce, used once.
+      payload: {$ref: '#/components/schemas/challenge'}
+      examples:
+        - payload: {t: challenge, nonce: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA}
+    auth:
+      name: auth
+      summary: The token, the player's P-256 public key and the signature over the nonce.
+      description: >-
+        All three fields are unpadded base64url. The key is the 65-byte uncompressed point (04 || X || Y); its SHA-256
+        is the thumbprint the token names. The signature is 64 bytes, r || s, ECDSA P-256 with SHA-256, over
+        "mixer-relay-v1" || room length (u16) || room || nonce for a room, and "mixer-session-v1" || nonce for the
+        command path.
+      payload: {$ref: '#/components/schemas/auth'}
+      examples:
+        - payload: {t: auth, token: AA, key: AA, sig: AA}
+    ready:
+      name: ready
+      summary: Admitted.
+      payload: {$ref: '#/components/schemas/ready'}
+      examples:
+        - payload: {t: ready}
+    set:
+      name: set
+      summary: Set one patch (0..23) of the colour chart to an sRGB colour.
+      payload: {$ref: '#/components/schemas/set'}
+      examples:
+        - payload: {t: set, id: 18, rgb: [255, 0, 0]}
+    snapshot:
+      name: snapshot
+      summary: All 24 patches, sent back as a datagram too.
+      payload: {$ref: '#/components/schemas/snapshot'}
+    mesh:
+      name: mesh
+      summary: A request for the download URLs of a mesh, named by the SHA-256 of its desync index.
+      payload: {$ref: '#/components/schemas/mesh'}
+      examples:
+        - payload: {t: mesh, digest: '0000000000000000000000000000000000000000000000000000000000000000'}
+    meshGrant:
+      name: meshGrant
+      summary: Presigned URLs for the index and every chunk, valid for `expires` seconds.
+      payload: {$ref: '#/components/schemas/meshGrant'}
+    meshMore:
+      name: meshMore
+      summary: A later piece of a mesh reply that did not fit one datagram.
+      description: >-
+        A reply to a request that came as a datagram is cut into pieces of about 900 bytes of JSON each. The first is
+        the `meshGrant` with as many chunk URLs as fit and `n`, the total; each later piece is one of these, whose
+        `from` says where its URLs start. A reply that fits goes out whole and has no `n`.
+      payload: {$ref: '#/components/schemas/meshMore'}
+    ok:
+      name: ok
+      summary: Accepted. Answers a stream only.
+      payload: {$ref: '#/components/schemas/ok'}
+      examples:
+        - payload: {t: ok}
+    error:
+      name: error
+      summary: Refused. Refusals before admission all look alike.
+      payload: {$ref: '#/components/schemas/error'}
+      examples:
+        - payload: {t: error, reason: denied}
+    entityPacket:
+      name: entityPacket
+      summary: One 100-byte entity packet, a pose.
+      contentType: application/octet-stream
+      description: >-
+        Layout owned by contract-entity-packet. The relay reads the first four bytes (the entity id), the
+        hybrid logical clock (a little-endian u64 at byte 40) and the two reserved bytes at 98, which must be zero.
+      bindings:
+        x-webtransport: {size: 100, delivery: datagram}
+      payload: {$ref: '#/components/schemas/packet'}
+    roomListHttp:
+      name: roomListHttp
+      summary: JSON, 200.
+      payload: {$ref: '#/components/schemas/roomList'}
+    connectionInfo:
+      name: connectionInfo
+      summary: JSON, 200. Whatever the demo configured, an empty object if nothing.
+      payload: {type: object}
+    page:
+      name: page
+      summary: text/html, 200.
+      contentType: text/html
+      payload: {type: string}
+    usdFile:
+      name: usdFile
+      summary: text/plain, 200, when the file exists.
+      contentType: text/plain
+      payload: {type: string}
+    notFound:
+      name: notFound
+      summary: text/plain, 404, with the body `not found`. Also what every unknown path gets.
+      contentType: text/plain
+      payload: {type: string, const: not found}
+    echoBytes:
+      name: echoBytes
+      contentType: application/octet-stream
+      payload: {type: string, contentEncoding: binary}
+
+    # ---- commands: each is one 100-byte packet. `x-wire` gives the type number, who sends it and its data's fields.
+    joinRoom:
+      name: joinRoom
+      summary: Join a room, creating it if nobody has the name.
+      description: >-
+        The creator sends the room's content, then `content` makes the room joinable. A later joiner must have the
+        same versions unless the creator asked to ignore them. Checked against the token on its own.
+      x-wire:
+        type: 1
+        from: client
+        fields: [[room, string], [blender_version, string], [mixer_version, string], [ignore_version_check, bool], [generic_protocol, bool]]
+      payload:
+        type: object
+        additionalProperties: false
+        required: [room, blender_version, mixer_version, ignore_version_check, generic_protocol]
+        properties:
+          room: {type: string, minLength: 1}
+          blender_version: {type: string}
+          mixer_version: {type: string}
+          ignore_version_check: {type: boolean}
+          generic_protocol: {type: boolean}
+      examples:
+        - payload: {room: demo, blender_version: 5.0.1, mixer_version: '1.0', ignore_version_check: false, generic_protocol: false}
+    joinRoomOk:
+      name: joinRoomOk
+      summary: You are in the room.
+      x-wire: {type: 1, from: server, fields: [[room, string]]}
+      payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
+    leaveRoom:
+      name: leaveRoom
+      x-wire: {type: 3, from: client, fields: []}
+      payload: {type: object, additionalProperties: false}
+      examples: [{payload: {}}]
+    leaveRoomOk:
+      name: leaveRoomOk
+      summary: You left. An empty room is deleted unless it is kept open.
+      x-wire: {type: 3, from: server, fields: []}
+      payload: {type: object, additionalProperties: false}
+    listRooms:
+      name: listRooms
+      x-wire: {type: 4, from: client, fields: []}
+      payload: {type: object, additionalProperties: false}
+      examples: [{payload: {}}]
+    roomList:
+      name: roomList
+      summary: The rooms the token covers, by name, with their attributes.
+      x-wire: {type: 4, from: server, fields: [[rooms, json]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [rooms]
+        properties:
+          rooms:
+            type: object
+            additionalProperties: {$ref: '#/components/schemas/roomAttributes'}
+    listClients:
+      name: listClients
+      x-wire: {type: 14, from: client, fields: []}
+      payload: {type: object, additionalProperties: false}
+      examples: [{payload: {}}]
+    clientList:
+      name: clientList
+      summary: You, and the clients in rooms the token covers, by id.
+      x-wire: {type: 14, from: server, fields: [[clients, json]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [clients]
+        properties:
+          clients:
+            type: object
+            additionalProperties: {$ref: '#/components/schemas/clientAttributes'}
+    content:
+      name: content
+      summary: The creator says the room's content is complete, which makes the room joinable.
+      x-wire: {type: 5, from: client, fields: []}
+      payload: {type: object, additionalProperties: false}
+      examples: [{payload: {}}]
+    contentOffer:
+      name: contentOffer
+      summary: Sent to the creator of a room, to ask for the content now.
+      x-wire: {type: 5, from: server, fields: []}
+      payload: {type: object, additionalProperties: false}
+    clearContent:
+      name: clearContent
+      summary: A joiner is about to get the stored commands, in order, and then `joinRoomOk`.
+      x-wire: {type: 6, from: server, fields: []}
+      payload: {type: object, additionalProperties: false}
+    deleteRoom:
+      name: deleteRoom
+      summary: Delete an empty room. Anything else is ignored.
+      x-wire: {type: 7, from: client, fields: [[room, raw]]}
+      payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
+      examples: [{payload: {room: demo}}]
+    roomDeleted:
+      name: roomDeleted
+      x-wire: {type: 21, from: server, fields: [[room, string]]}
+      payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
+    setClientName:
+      name: setClientName
+      x-wire: {type: 11, from: client, fields: [[user_name, raw]]}
+      payload: {type: object, additionalProperties: false, required: [user_name], properties: {user_name: {type: string}}}
+      examples: [{payload: {user_name: Sam}}]
+    setClientCustomAttributes:
+      name: setClientCustomAttributes
+      summary: Merge attributes into the client's, and announce the changed ones as `clientUpdate`.
+      x-wire: {type: 15, from: client, fields: [[attributes, json]]}
+      payload: {type: object, additionalProperties: false, required: [attributes], properties: {attributes: {type: object}}}
+      examples: [{payload: {attributes: {color: red}}}]
+    setRoomCustomAttributes:
+      name: setRoomCustomAttributes
+      summary: Merge attributes into a room's, and announce the changed ones as `roomUpdate`.
+      x-wire: {type: 16, from: client, fields: [[room, string], [attributes, json]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [room, attributes]
+        properties: {room: {type: string}, attributes: {type: object}}
+      examples: [{payload: {room: demo, attributes: {scene: cube}}}]
+    setRoomKeepOpen:
+      name: setRoomKeepOpen
+      x-wire: {type: 17, from: client, fields: [[room, string], [keep_open, bool]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [room, keep_open]
+        properties: {room: {type: string}, keep_open: {type: boolean}}
+      examples: [{payload: {room: demo, keep_open: true}}]
+    clientIdRequest:
+      name: clientIdRequest
+      x-wire: {type: 18, from: client, fields: []}
+      payload: {type: object, additionalProperties: false}
+      examples: [{payload: {}}]
+    clientIdReply:
+      name: clientIdReply
+      x-wire: {type: 18, from: server, fields: [[id, raw]]}
+      payload: {type: object, additionalProperties: false, required: [id], properties: {id: {type: string, minLength: 1}}}
+    clientUpdate:
+      name: clientUpdate
+      summary: Only what changed, by client id. To clients whose token covers the room, and to the client itself.
+      x-wire: {type: 19, from: server, fields: [[update, json]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [update]
+        properties: {update: {type: object, minProperties: 1, maxProperties: 1}}
+    roomUpdate:
+      name: roomUpdate
+      summary: Only what changed, by room name. To clients whose token covers the room.
+      x-wire: {type: 20, from: server, fields: [[update, json]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [update]
+        properties: {update: {type: object, minProperties: 1, maxProperties: 1}}
+    clientDisconnected:
+      name: clientDisconnected
+      x-wire: {type: 22, from: server, fields: [[id, string]]}
+      payload: {type: object, additionalProperties: false, required: [id], properties: {id: {type: string}}}
+    sendError:
+      name: sendError
+      summary: An error a client reports, which the relay passes to the room.
+      x-wire: {type: 12, from: client, fields: [[message, string]]}
+      payload: {type: object, additionalProperties: false, required: [message], properties: {message: {type: string}}}
+      examples: [{payload: {message: something broke}}]
+    sendErrorOut:
+      name: sendErrorOut
+      summary: A refusal, or an error another client reported.
+      x-wire: {type: 12, from: server, fields: [[message, string]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [message]
+        properties:
+          message:
+            type: string
+            description: The relay's own messages are listed. A client's report is free text; the last branch is the one the tests send.
+            anyOf:
+              - {pattern: '^Received join_room but room .+ is already joined$'}
+              - {pattern: '^Not allowed in room .+$'}
+              - {pattern: '^Received leave_room but no room is joined$'}
+              - {pattern: '^malformed (JOIN_ROOM|SET_CLIENT_CUSTOM_ATTRIBUTES|SET_ROOM_CUSTOM_ATTRIBUTES|SET_ROOM_KEEP_OPEN|entity_state|entity_remove)$'}
+              - {pattern: '^Unjoined client trying to set room joinable$'}
+              - {pattern: '^Trying to set joinable room .+ which is already joinable$'}
+              - {pattern: '^Command [0-9]+ received but no handler for it on server$'}
+              - {pattern: '^Room .+ not joinable yet\.$'}
+              - {pattern: '^Blender version mismatch with room .+: client version is .*, room version is .*$'}
+              - {pattern: '^Mixer version mismatch with room .+: client version is .*, room version is .*$'}
+              - {pattern: '^bad command packet: (not_a_command|bad_header|dirty_tail|wrong_length|missing_bulk|bad_body|bad_size|bad_type|bad_owner|bad_hlc|too_large|bad_digest)$'}
+              - {pattern: '^something broke$'}
+    roomCommand:
+      name: roomCommand
+      summary: Any command with a type above 100 that is not listed, such as an entity state (210, 100 bytes) or its removal (211, 4 bytes).
+      description: >-
+        Stored for late joiners and passed to the room's other members. A newer entity state replaces the older one of
+        the same entity (its first four bytes) and a removal drops it, so a room's content stays one pose per entity.
+        An entity removal (211, used 5 bytes or more) is not stored itself. Consecutive commands of one type between 201 and 998 that name the same path replace each other. Types 205,
+        139 and 1000 are passed on and never stored. A malformed entity command is answered `malformed ...`.
+      x-wire: {typeFrom: payload, from: client, fields: [[data, bytes]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, data]
+        properties:
+          type: {type: integer, minimum: 101, maximum: 65535}
+          data: {type: string, pattern: '^([0-9a-f]{2})*$', description: The data as lowercase hex.}
+      examples: [{payload: {type: 150, data: 0a0b0c}}]
+    roomCommandOut:
+      name: roomCommandOut
+      summary: A room command from another member, or a stored one replayed to a joiner.
+      x-wire: {typeFrom: payload, from: server, fields: [[data, bytes]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, data]
+        properties:
+          type: {type: integer, minimum: 101, maximum: 65535}
+          data: {type: string, pattern: '^([0-9a-f]{2})*$'}
+    unknownCommand:
+      name: unknownCommand
+      summary: A type of 100 or less that is not listed. Answered `Command N received but no handler for it on server`.
+      x-wire: {typeFrom: payload, from: client, fields: [[data, bytes]]}
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, data]
+        properties:
+          type: {type: integer, minimum: 1, maximum: 100}
+          data: {type: string, pattern: '^([0-9a-f]{2})*$'}
+      examples: [{payload: {type: 2, data: ''}}]
+
+  schemas:
+    hello:
+      type: object
+      required: [t]
+      additionalProperties: false
+      properties:
+        t: {const: hello}
+    challenge:
+      type: object
+      required: [t, nonce]
+      additionalProperties: false
+      properties:
+        t: {const: challenge}
+        nonce: {type: string, pattern: '^[A-Za-z0-9_-]{43}$', description: 32 random bytes, base64url without padding}
+    auth:
+      type: object
+      required: [t, token, key, sig]
+      additionalProperties: false
+      properties:
+        t: {const: auth}
+        token: {type: string, pattern: '^[A-Za-z0-9_-]*$'}
+        key: {type: string, pattern: '^[A-Za-z0-9_-]*$'}
+        sig: {type: string, pattern: '^[A-Za-z0-9_-]*$'}
+    ready:
+      type: object
+      required: [t]
+      additionalProperties: false
+      properties:
+        t: {const: ready}
+    set:
+      type: object
+      required: [t, id, rgb]
+      additionalProperties: false
+      properties:
+        t: {const: set}
+        id: {type: integer, minimum: 0, maximum: 23}
+        rgb:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: {type: integer, minimum: 0, maximum: 255}
+    snapshot:
+      type: object
+      required: [t, patches]
+      additionalProperties: false
+      properties:
+        t: {const: snapshot}
+        patches:
+          type: array
+          minItems: 24
+          maxItems: 24
+          items:
+            type: array
+            minItems: 3
+            maxItems: 3
+            items: {type: integer, minimum: 0, maximum: 255}
+    mesh:
+      type: object
+      required: [t, digest]
+      additionalProperties: false
+      properties:
+        t: {const: mesh}
+        digest: {type: string, pattern: '^[0-9a-fA-F]{64}$'}
+    meshGrant:
+      type: object
+      required: [t, digest, expires, index, chunks]
+      additionalProperties: false
+      properties:
+        t: {const: mesh}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$', description: The mesh this answers, lowercase hex.}
+        n:
+          type: integer
+          minimum: 1
+          description: 'Only in the first piece of a reply cut for datagrams (see `meshMore`): how many chunk URLs there are in all.'
+        expires: {type: integer, minimum: 1}
+        index: {type: string, pattern: '^https?://'}
+        chunks:
+          type: array
+          items: {type: string, pattern: '^https?://'}
+    meshMore:
+      type: object
+      required: [t, digest, from, chunks]
+      additionalProperties: false
+      properties:
+        t: {const: mesh_more}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        from: {type: integer, minimum: 0, description: The index of the first URL here in the whole list.}
+        chunks:
+          type: array
+          minItems: 1
+          items: {type: string, pattern: '^https?://'}
+    ok:
+      type: object
+      required: [t]
+      additionalProperties: false
+      properties:
+        t: {const: ok}
+    error:
+      type: object
+      required: [t, reason]
+      additionalProperties: false
+      properties:
+        t: {const: error}
+        reason:
+          enum: [unauthenticated, denied, locked, bad_message, bad_patch, bad_packet, unavailable]
+    packet:
+      type: string
+      contentEncoding: binary
+      description: Exactly 100 bytes.
+    roomList:
+      type: array
+      items:
+        type: object
+        required: [name, players, entities]
+        additionalProperties: false
+        properties:
+          name: {type: string}
+          players: {type: integer, minimum: 0}
+          entities: {type: integer, minimum: 0}
+    roomAttributes:
+      type: object
+      required: [keep_open, blender_version, mixer_version, ignore_version_check, generic_protocol, command_count, byte_size, joinable]
+      properties:
+        keep_open: {type: boolean}
+        blender_version: {type: string}
+        mixer_version: {type: string}
+        ignore_version_check: {type: boolean}
+        generic_protocol: {type: boolean}
+        command_count: {type: integer, minimum: 0}
+        byte_size: {type: integer, minimum: 0}
+        joinable: {type: boolean}
+    clientAttributes:
+      type: object
+      required: [id, ip, port, room]
+      properties:
+        id: {type: string}
+        ip: {type: string}
+        port: {type: integer, minimum: 0}
+        room: {type: [string, 'null']}

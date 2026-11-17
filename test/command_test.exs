@@ -4,7 +4,7 @@
 
 defmodule MixerBroadcaster.CommandTest do
   @moduledoc """
-  GOLDEN: the 96 command packets the add-on's Python codec writes decode here to the fields it started from and encode
+  GOLDEN: the 96 command packets the add-on's codec writes decode here to the fields it started from and encode
   back to the same bytes, small and bulk.
   INVARIANT: for any type, owner, clock and data, pack then unpack gives them back; bulk data goes to the store only when
   it does not fit; the packet is always 100 bytes.

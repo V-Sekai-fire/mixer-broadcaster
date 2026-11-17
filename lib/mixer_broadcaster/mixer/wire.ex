@@ -4,7 +4,7 @@
 
 defmodule MixerBroadcaster.Mixer.Wire do
   @moduledoc """
-  Mixer's wire format, as `mixer/broadcaster/common.py` writes it.
+  The relay's command wire format, as `spec/asyncapi.yaml` describes it (`x-wire` on each message).
 
     * A command is a type and its data. It rides in one 100-byte packet (`MixerBroadcaster.Command`), bulk data by digest.
     * A string is `length u32 | utf-8 bytes`; a JSON value is a string; a bool is a u32 that is 1 or 0.

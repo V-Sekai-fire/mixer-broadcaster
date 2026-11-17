@@ -56,6 +56,12 @@ defmodule MixerBroadcaster.Mixer.Store do
     end
   end
 
+  defmodule BlobAccess do
+    @moduledoc "What the mesh grant needs from the blob store: read an object, and presign a GET. `S3` is the real one; tests mock it."
+    @callback object(String.t()) :: {:ok, binary()} | {:error, term()}
+    @callback presign_get(String.t(), pos_integer()) :: {:ok, String.t()} | {:error, term()}
+  end
+
   defmodule S3 do
     @moduledoc """
     SeaweedFS's S3 gateway, signed with AWS Signature V4: objects at `<bucket>/blob/<hex digest>`. Settings:
@@ -63,6 +69,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` and are read when used. `sign/6` is public so tests can pin it.
     """
     @behaviour MixerBroadcaster.Mixer.Store
+    @behaviour MixerBroadcaster.Mixer.Store.BlobAccess
 
     @region "us-east-1"
 
@@ -143,6 +150,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     end
 
     @doc "Read any object of the bucket by key (the relay uses this for desync indexes). Never raises."
+    @impl MixerBroadcaster.Mixer.Store.BlobAccess
     @spec object(String.t()) :: {:ok, binary()} | {:error, term()}
     def object(key) when is_binary(key) do
       case request_path("GET", key, "") do
@@ -156,6 +164,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     A URL that lets its bearer `GET` one object for `ttl` seconds, with no keys (AWS Signature V4, query string form).
     `{:error, :no_s3_keys}` when the relay has no keys.
     """
+    @impl MixerBroadcaster.Mixer.Store.BlobAccess
     @spec presign_get(String.t(), 1..3600, DateTime.t()) :: {:ok, String.t()} | {:error, :no_s3_keys}
     def presign_get(key, ttl, now \\ DateTime.utc_now()) when is_binary(key) and ttl in 1..3600 do
       {endpoint, bucket} = conf()

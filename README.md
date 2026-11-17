@@ -23,3 +23,10 @@ CONTROL a silent client receives nothing and a client pinned to the wrong certif
 `mix test` also scans `lib/` for `try`/`rescue`/`catch`/`throw` with a planted control.
 
 Built on [`webtransport`](https://hex.pm/packages/webtransport) (Apache-2.0, pure Erlang QUIC and HTTP/3, no Rust or C).
+
+## Interface
+
+`spec/asyncapi.yaml` is the whole interface of the relay as one AsyncAPI 3.1 document: the room hub, the command
+protocol (every command's type number and data layout, in `x-wire`), the demo's HTTP routes, the echo handler, the
+errors and the environment variables. `mix test` holds the real relay to it in both directions, with the blob store
+mocked by Mox. Validate it with `npx @asyncapi/cli validate spec/asyncapi.yaml`.

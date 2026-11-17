@@ -4,8 +4,7 @@
 
 defmodule MixerBroadcaster.Command do
   @moduledoc """
-  A command as one 100-byte packet of class `command` (128), as `mixer/broadcaster/entity.py` writes it and as
-  contract-entity-packet (`EntityPacket/Classes.lean`) defines it.
+  A command as one 100-byte packet of class `command` (128), as contract-entity-packet (`EntityPacket/Classes.lean`) defines it.
 
   A command has no pose, so its data uses the bytes a pose would: bytes 4..39 then 56..97, read as one run of 78.
   `gid` is the command's key, `class_owner` is `(128 << 24) | owner`, `sub_index` is `(used << 16) | type`.
