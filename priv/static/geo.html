@@ -1,0 +1,85 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Geometry, three.js client</title>
+<style>html,body{margin:0;background:#141414}canvas{display:block}</style>
+<canvas id="c" width="480" height="360"></canvas>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.170.0/build/three.module.js";
+// three.js client of the relay: joins a room over HTTP/3 WebTransport, reads 100-byte entity packets
+// (contract-entity-packet layout), fetches the mesh named by the SHA-256 in each payload, and draws it unlit with the
+// per-face chart colours. Poses follow the packets. Demo page: the .usda comes from the demo's /usd route.
+const CHART = [[115,82,68],[194,150,130],[98,122,157],[87,108,67],[133,128,177],[103,189,170],[214,126,44],[80,91,166],
+  [193,90,99],[94,60,108],[157,188,64],[224,163,46],[56,61,150],[70,148,73],[175,54,60],[231,199,31],[187,86,149],
+  [8,133,161],[243,243,242],[200,200,200],[160,160,160],[122,122,121],[85,85,85],[52,52,52]];
+const room = new URLSearchParams(location.search).get("room") || "geo";
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), antialias: false, preserveDrawingBuffer: true });
+renderer.setSize(480, 360, false);
+renderer.setClearColor(new THREE.Color().setRGB(20/255, 20/255, 20/255, THREE.SRGBColorSpace));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, 480/360, 0.05, 100);   // Godot's default: 75 degrees vertical
+camera.position.set(0, 0, 5.5); camera.lookAt(0, 0, 0);
+const geoms = new Map(), nodes = new Map(), lags = [], lastHlc = new Map();   // geometry by digest, one node per entity
+const S = window.__geo = { packets: 0, entities: 0, meshes: 0, hlcOutOfOrder: 0, wrongSize: 0, lagMs: 0, ready: false, error: null };
+
+function arrayAfter(text, key) {
+  const i = text.indexOf(key); if (i < 0) return [];
+  const a = text.indexOf("[", i); let depth = 0;
+  for (let j = a; j < text.length; j++) {
+    if (text[j] === "[") depth++; else if (text[j] === "]" && --depth === 0)
+      return (text.slice(a + 1, j).match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) || []).map(Number);
+  }
+  return [];
+}
+async function loadMesh(hex) {
+  geoms.set(hex, null);
+  const text = await (await fetch(`/usd/${hex}.usda`)).text();
+  const pts = arrayAfter(text, "points = "), tri = arrayAfter(text, "faceVertexIndices = "), patch = arrayAfter(text, "primvars:patch = ");
+  const pos = new Float32Array(tri.length * 3), col = new Float32Array(tri.length * 3), c = new THREE.Color();
+  for (let t = 0; t < tri.length / 3; t++) {
+    const p = CHART[patch[t]];
+    c.setRGB(p[0]/255, p[1]/255, p[2]/255, THREE.SRGBColorSpace);
+    for (let k = 0; k < 3; k++) {
+      const vi = tri[t*3+k], o = (t*3+k)*3;
+      pos.set([pts[vi*3], pts[vi*3+1], pts[vi*3+2]], o); col.set([c.r, c.g, c.b], o);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geoms.set(hex, { g, mat: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }) });
+  S.meshes = [...geoms.values()].filter(Boolean).length;
+}
+function onPacket(b) {
+  if (b.length !== 100) { if (b[0] !== 123) S.wrongSize++; return; }
+  const v = new DataView(b.buffer, b.byteOffset, 100);
+  const gid = v.getUint32(0, true), hlc = v.getBigUint64(40, true), twist = v.getInt16(60, true);
+  const x = Number(v.getBigInt64(4, true)) / 1e6, y = Number(v.getBigInt64(12, true)) / 1e6, z = Number(v.getBigInt64(20, true)) / 1e6;
+  const hex = [...b.slice(62, 94)].map(n => n.toString(16).padStart(2, "0")).join("");
+  (S.last ||= {})[gid] = { x, y, z, sx: v.getInt16(56, true), sz: v.getInt16(58, true), tw: twist };
+  S.packets++; if (lastHlc.has(gid) && hlc <= lastHlc.get(gid)) S.hlcOutOfOrder++; lastHlc.set(gid, hlc); S.entities = lastHlc.size;
+  S.lagMs = Date.now() - Number(hlc >> 16n);
+  if (!geoms.has(hex)) loadMesh(hex).catch(e => { S.error = String(e); geoms.delete(hex); });
+  const geo = geoms.get(hex);
+  let m = nodes.get(gid);
+  if (geo && (!m || m.userData.hex !== hex)) {
+    if (m) scene.remove(m);
+    m = new THREE.Mesh(geo.g, geo.mat); m.userData.hex = hex; scene.add(m); nodes.set(gid, m);
+  }
+  if (m) {
+    m.position.set(x, y, z);
+    const sx = v.getInt16(56, true) * Math.PI / 32767, sz = v.getInt16(58, true) * Math.PI / 32767, a = Math.hypot(sx, sz);
+    const swing = a > 1e-9 ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(sx / a, 0, sz / a), a) : new THREE.Quaternion();
+    const tw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), twist * Math.PI * 2 / 65536);
+    m.quaternion.copy(swing.multiply(tw));   // q = swing * twist, as SWING_TWIST.md
+  }
+}
+async function main() {
+  const info = await (await fetch("/connection")).json();
+  const wt = new WebTransport(`https://127.0.0.1:${info.wt_port}/room/${room}`,
+    { serverCertificateHashes: [{ algorithm: "sha-256", value: new Uint8Array(info.cert_sha256) }] });
+  await wt.ready; S.ready = true;
+  const r = wt.datagrams.readable.getReader();
+  for (;;) { const { value, done } = await r.read(); if (done) break; onPacket(value); }
+}
+(function loop() { renderer.render(scene, camera); requestAnimationFrame(loop); })();
+main().catch(e => S.error = String(e));
+</script>

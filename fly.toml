@@ -1,0 +1,29 @@
+# Fly.io: one UDP service. No http_service, no TCP port, no health check that could be a second way in.
+# Secrets (never in this file): MB_ROOT_KEY, and optionally MB_CERT_PEM and MB_KEY_PEM.
+app = "chibifire-mixer-relay"
+primary_region = "sea"
+
+[build]
+
+[env]
+  MB_SERVE = "1"
+  MB_WT_PORT = "4433"
+  # Fly delivers UDP to this address; a socket on 0.0.0.0 would answer from the wrong source address.
+  MB_BIND = "fly-global-services"
+  MB_HOST = "chibifire-mixer-relay.fly.dev"
+  # No browser origins until the static page exists. Non-browser clients send no Origin and pass the check.
+  MB_ORIGINS = ""
+
+[[services]]
+  protocol = "udp"
+  internal_port = 4433
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 4433
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

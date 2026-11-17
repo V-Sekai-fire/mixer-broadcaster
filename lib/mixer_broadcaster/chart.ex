@@ -1,6 +1,6 @@
 defmodule MixerBroadcaster.Chart do
   @moduledoc """
-  The shared object the three clients agree on: an X-Rite ColorChecker Classic, 24 sRGB 8-bit patches (D65),
+  The shared object the three clients agree on: a classic 24-patch color chart, 24 sRGB 8-bit patches (D65),
   row by row from dark skin to black. Same table as entities-model-explorer `ColorChart.gd`.
   A chart is a map of patch index (0..23) to [r, g, b].
   """

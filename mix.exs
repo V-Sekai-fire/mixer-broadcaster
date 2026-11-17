@@ -15,7 +15,7 @@ defmodule MixerBroadcaster.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger, :ssl, :public_key], mod: {MixerBroadcaster.Application, []}]
+    [extra_applications: [:logger, :ssl, :public_key, :inets], mod: {MixerBroadcaster.Application, []}]
   end
 
   defp deps do

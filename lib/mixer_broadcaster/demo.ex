@@ -5,7 +5,7 @@ defmodule MixerBroadcaster.Demo do
   Makes a P-256 certificate valid 13 days (browsers accept a self-signed WebTransport server by hash only when it
   is ECDSA and lives at most 14 days), starts the hub on QUIC `:wt_port` and the web page on TCP `:web_port`.
   """
-  alias MixerBroadcaster.{Hub, Server, Web}
+  alias MixerBroadcaster.{Server, Web}
 
   def start(opts \\ []) do
     wt_port =
@@ -49,7 +49,7 @@ defmodule MixerBroadcaster.Demo do
              port: wt_port,
              certfile: cert,
              keyfile: key,
-             handler: Hub,
+             handler: MixerBroadcaster.Router,
              compat_mode: compat()
            ),
          {:ok, _} <- Bandit.start_link(plug: Web, port: web_port) do

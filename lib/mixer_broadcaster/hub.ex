@@ -15,7 +15,7 @@ defmodule MixerBroadcaster.Hub do
   """
   @behaviour :webtransport_handler
 
-  alias MixerBroadcaster.{Auth, Chart, Rooms}
+  alias MixerBroadcaster.{Auth, Chart, Clock, Loss, Packet, Rooms}
 
   # Browsers always send an Origin; the library refuses those with 403 unless the handler opts in.
   # Only the origins of our own page are let in; non-browser clients send no Origin and always pass.
@@ -37,8 +37,19 @@ defmodule MixerBroadcaster.Hub do
   def init(_session, req, _opts) do
     room = room_of(Map.get(req, :path, "/"))
     mode = Application.get_env(:mixer_broadcaster, :auth)
-    state = %{room: room, mode: mode, admitted: mode == :off, nonce: nil, tries: 0}
+
+    state = %{
+      room: room,
+      mode: mode,
+      admitted: mode == :off,
+      nonce: nil,
+      tries: 0,
+      loss: Loss.from_env(),
+      live: MapSet.new()
+    }
+
     if state.admitted, do: join(room)
+    if state.admitted, do: send(self(), :replay)
     {:ok, state}
   end
 
@@ -52,13 +63,42 @@ defmodule MixerBroadcaster.Hub do
 
   @impl true
   def handle_datagram(data, state) do
-    {state, reply} = handle_message(data, state)
-    {:ok, state, datagram_for(reply)}
+    case lose(state) do
+      {:drop, state} ->
+        {:ok, state, []}
+
+      {:pass, state} ->
+        {state, reply} = handle_message(data, state)
+        {:ok, state, datagram_for(reply)}
+    end
   end
 
   @impl true
-  def handle_info({:relay, from, bin}, state) when from != self(),
-    do: {:ok, state, [{:send_datagram, bin}]}
+  def handle_info({:relay, from, bin}, state) when from != self() do
+    case lose(state) do
+      {:drop, state} -> {:ok, state}
+      {:pass, state} -> {:ok, %{state | live: remember(state.live, bin)}, [{:send_datagram, bin}]}
+    end
+  end
+
+  # a client that joins late gets the last packet of every entity in the room
+  # Datagrams can be lost and the first may leave before the client is listening, so the replay goes out three times.
+  def handle_info(:replay, state), do: handle_info({:replay, 3}, state)
+
+  def handle_info({:replay, n}, %{room: room} = state) do
+    if n > 1, do: Process.send_after(self(), {:replay, n - 1}, 250)
+
+    {sends, state} =
+      Enum.flat_map_reduce(Rooms.entities(room), state, fn pkt, st ->
+        # an entity this session already heard live is newer than the stored copy: replaying it would go backwards
+        case if(live?(st.live, pkt), do: {:drop, st}, else: lose(st)) do
+          {:drop, st} -> {[], st}
+          {:pass, st} -> {[{:send_datagram, pkt}], st}
+        end
+      end)
+
+    {:ok, state, sends}
+  end
 
   def handle_info(_other, state), do: {:ok, state}
 
@@ -73,6 +113,20 @@ defmodule MixerBroadcaster.Hub do
   defp datagram_for(_), do: []
 
   defp handle_message(data, %{admitted: false} = state), do: gate(data, state)
+
+  # A pose: exactly one 100-byte entity packet. The relay stamps its clock and forwards it to the room.
+  # (A JSON message of exactly 100 bytes would land here; every real one is shorter.)
+  defp handle_message(<<_::binary-size(100)>> = pkt, %{room: room} = state) do
+    with true <- Packet.valid?(pkt),
+         {:ok, word} <- Clock.stamp(Packet.hlc(pkt)) do
+      stamped = Packet.put_hlc(pkt, word)
+      Rooms.put_entity(room, stamped)
+      relay(room, stamped)
+      {state, ~s({"t":"ok"})}
+    else
+      _ -> {state, ~s({"t":"error","reason":"bad_packet"})}
+    end
+  end
 
   defp handle_message(data, %{room: room} = state) do
     case JSON.decode(data) do
@@ -125,11 +179,22 @@ defmodule MixerBroadcaster.Hub do
          {:ok, _thumbprint} <-
            Auth.admit(mode, token, pub, sig, room, nonce, System.os_time(:second)) do
       join(room)
+      send(self(), :replay)
       {%{state | admitted: true}, ~s({"t":"ready"})}
     else
       _ -> {state, ~s({"t":"error","reason":"denied"})}
     end
   end
+
+  # one verdict per datagram, in either direction, from this session's own channel
+  defp lose(state) do
+    {verdict, loss} = Loss.step(state.loss)
+    {verdict, %{state | loss: loss}}
+  end
+
+  defp remember(live, <<gid::binary-size(4), _::binary>>), do: MapSet.put(live, gid)
+  defp remember(live, _), do: live
+  defp live?(live, <<gid::binary-size(4), _::binary>>), do: MapSet.member?(live, gid)
 
   defp join(room), do: {:ok, _} = Registry.register(MixerBroadcaster.Registry, room, nil)
 

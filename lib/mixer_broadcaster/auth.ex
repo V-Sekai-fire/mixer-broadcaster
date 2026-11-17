@@ -23,6 +23,43 @@ defmodule MixerBroadcaster.Auth do
   def message(room, nonce) when is_binary(room) and byte_size(nonce) == @nonce_bytes,
     do: <<"mixer-relay-v1", byte_size(room)::16, room::binary, nonce::binary>>
 
+  @doc """
+  The message a Mixer session signs: "mixer-session-v1" || nonce. A session has no room in its path (a client joins
+  rooms after it connects), so the proof is not bound to one; each join is checked against the token on its own.
+  """
+  def session_message(nonce) when byte_size(nonce) == @nonce_bytes,
+    do: <<"mixer-session-v1", nonce::binary>>
+
+  @doc """
+  Admit a Mixer session: the key and proof are checked as for a room, and the token must be valid for this key and time
+  with the room check deferred. Returns `{:ok, thumbprint, allow}`, where `allow.(room)` says whether the token covers
+  that room (a token for several rooms, or narrowed by its holder, answers per room).
+  """
+  def admit_session(%{root_key: root}, token, pub, sig, nonce, now)
+      when is_binary(token) and is_binary(pub) and is_binary(sig) and is_binary(nonce) and
+             byte_size(nonce) == @nonce_bytes do
+    tp = if valid_pub?(pub), do: thumbprint(pub)
+
+    with true <- tp != nil or {:error, :bad_key},
+         true <- session_proof_ok?(pub, sig, nonce) or {:error, :bad_proof},
+         {:ok, _} <- Token.verify(token, root, %{room: :none, thumbprint: tp, now: now}) do
+      allow = fn room ->
+        is_binary(room) and
+          match?({:ok, _}, Token.verify(token, root, %{room: room, thumbprint: tp, now: now}))
+      end
+
+      {:ok, tp, allow}
+    end
+  end
+
+  def admit_session(_config, _token, _pub, _sig, _nonce, _now), do: {:error, :not_configured}
+
+  defp session_proof_ok?(pub, <<_::binary-size(64)>> = raw, nonce) do
+    :crypto.verify(:ecdsa, :sha256, session_message(nonce), raw_to_der(raw), [pub, :secp256r1])
+  end
+
+  defp session_proof_ok?(_, _, _), do: false
+
   @doc "The relay's decision. `config` is `%{root_key: <<_::256>>}`; anything else refuses."
   def admit(%{root_key: root} = _config, token, pub, sig, room, nonce, now)
       when is_binary(token) and is_binary(pub) and is_binary(sig) and is_binary(nonce) do
@@ -62,6 +99,10 @@ defmodule MixerBroadcaster.Auth do
   def sign(priv, room, nonce) do
     :crypto.sign(:ecdsa, :sha256, message(room, nonce), [priv, :secp256r1]) |> der_to_raw()
   end
+
+  @doc "The proof a client makes for a Mixer session (the test and the guest ELF do the same)."
+  def sign_session(priv, nonce),
+    do: :crypto.sign(:ecdsa, :sha256, session_message(nonce), [priv, :secp256r1]) |> der_to_raw()
 
   # DER <-> raw r||s
   def raw_to_der(<<r::binary-size(32), s::binary-size(32)>>) do
