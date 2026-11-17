@@ -97,11 +97,14 @@ channels:
       error: {$ref: '#/components/messages/error'}
       entityPacket: {$ref: '#/components/messages/entityPacket'}
 
-  commands:
+  commandsIn:
     address: /mixer
     servers:
       - $ref: '#/servers/relay'
     description: >-
+      What a client sends on the command path (the relay receives it). `commandsOut` is the same path in the other
+      direction; the two are separate channels so that every message sent to one is valid against exactly one message here,
+      told apart by its command type in `headers`.
       The command protocol. The door is the same JSON `hello`, `auth` and `ready` as a room's, but the proof is not
       bound to a room: each `joinRoom` is checked against the token on its own. After admission one bidirectional
       stream carries commands, each exactly one 100-byte packet of class `command` (128), back to back; a partial
@@ -117,39 +120,59 @@ channels:
         unreliable: poses as datagrams
     messages:
       hello: {$ref: '#/components/messages/hello'}
-      challenge: {$ref: '#/components/messages/challenge'}
       auth: {$ref: '#/components/messages/auth'}
-      ready: {$ref: '#/components/messages/ready'}
-      error: {$ref: '#/components/messages/error'}
       joinRoom: {$ref: '#/components/messages/joinRoom'}
-      joinRoomOk: {$ref: '#/components/messages/joinRoomOk'}
       leaveRoom: {$ref: '#/components/messages/leaveRoom'}
-      leaveRoomOk: {$ref: '#/components/messages/leaveRoomOk'}
       listRooms: {$ref: '#/components/messages/listRooms'}
-      roomList: {$ref: '#/components/messages/roomList'}
       listClients: {$ref: '#/components/messages/listClients'}
-      clientList: {$ref: '#/components/messages/clientList'}
       content: {$ref: '#/components/messages/content'}
-      contentOffer: {$ref: '#/components/messages/contentOffer'}
-      clearContent: {$ref: '#/components/messages/clearContent'}
       deleteRoom: {$ref: '#/components/messages/deleteRoom'}
-      roomDeleted: {$ref: '#/components/messages/roomDeleted'}
       setClientName: {$ref: '#/components/messages/setClientName'}
       setClientCustomAttributes: {$ref: '#/components/messages/setClientCustomAttributes'}
       setRoomCustomAttributes: {$ref: '#/components/messages/setRoomCustomAttributes'}
       setRoomKeepOpen: {$ref: '#/components/messages/setRoomKeepOpen'}
       clientIdRequest: {$ref: '#/components/messages/clientIdRequest'}
+      sendError: {$ref: '#/components/messages/sendError'}
+      roomCommand: {$ref: '#/components/messages/roomCommand'}
+      unknownCommand: {$ref: '#/components/messages/unknownCommand'}
+      entityPacket: {$ref: '#/components/messages/entityPacket'}
+  commandsOut:
+    address: /mixer
+    servers:
+      - $ref: '#/servers/relay'
+    description: >-
+      What the relay sends on the command path (the client receives it); see `commandsIn`.
+      The command protocol. The door is the same JSON `hello`, `auth` and `ready` as a room's, but the proof is not
+      bound to a room: each `joinRoom` is checked against the token on its own. After admission one bidirectional
+      stream carries commands, each exactly one 100-byte packet of class `command` (128), back to back; a partial
+      packet waits for the rest, and the relay answers on the stream the client sent its first command on. Poses ride
+      in datagrams. A packet the relay cannot read, and a command it refuses, is answered with `sendErrorOut`, never
+      a crash. Every command has a type number and data laid out by its `x-wire`; a type above 100 that is not listed
+      is a room command, stored for late joiners and forwarded to the room's other members. Data too big for the chunk
+      store goes by desync index (a mode 2 command: the SHA-256 of the index, as a mesh is named); the relay never reads
+      it and carries it as `mixer-index:` || the 32-byte digest || the sender's key (u32, little-endian).
+    bindings:
+      x-webtransport:
+        reliable: commands on one bidirectional stream, 100-byte packets back to back
+        unreliable: poses as datagrams
+    messages:
+      challenge: {$ref: '#/components/messages/challenge'}
+      ready: {$ref: '#/components/messages/ready'}
+      error: {$ref: '#/components/messages/error'}
+      joinRoomOk: {$ref: '#/components/messages/joinRoomOk'}
+      leaveRoomOk: {$ref: '#/components/messages/leaveRoomOk'}
+      roomList: {$ref: '#/components/messages/roomList'}
+      clientList: {$ref: '#/components/messages/clientList'}
+      contentOffer: {$ref: '#/components/messages/contentOffer'}
+      clearContent: {$ref: '#/components/messages/clearContent'}
+      roomDeleted: {$ref: '#/components/messages/roomDeleted'}
       clientIdReply: {$ref: '#/components/messages/clientIdReply'}
       clientUpdate: {$ref: '#/components/messages/clientUpdate'}
       roomUpdate: {$ref: '#/components/messages/roomUpdate'}
       clientDisconnected: {$ref: '#/components/messages/clientDisconnected'}
-      sendError: {$ref: '#/components/messages/sendError'}
       sendErrorOut: {$ref: '#/components/messages/sendErrorOut'}
-      roomCommand: {$ref: '#/components/messages/roomCommand'}
       roomCommandOut: {$ref: '#/components/messages/roomCommandOut'}
-      unknownCommand: {$ref: '#/components/messages/unknownCommand'}
       entityPacket: {$ref: '#/components/messages/entityPacket'}
-
   rooms:
     address: /rooms
     servers:
@@ -268,70 +291,70 @@ operations:
     summary: What the other sessions of the room receive, and what a late joiner gets replayed.
   commandsHello:
     action: receive
-    channel: {$ref: '#/channels/commands'}
-    messages: [{$ref: '#/channels/commands/messages/hello'}]
+    channel: {$ref: '#/channels/commandsIn'}
+    messages: [{$ref: '#/channels/commandsIn/messages/hello'}]
     reply:
-      channel: {$ref: '#/channels/commands'}
+      channel: {$ref: '#/channels/commandsOut'}
       messages:
-        - $ref: '#/channels/commands/messages/challenge'
-        - $ref: '#/channels/commands/messages/error'
+        - $ref: '#/channels/commandsOut/messages/challenge'
+        - $ref: '#/channels/commandsOut/messages/error'
   commandsAuth:
     action: receive
-    channel: {$ref: '#/channels/commands'}
-    messages: [{$ref: '#/channels/commands/messages/auth'}]
+    channel: {$ref: '#/channels/commandsIn'}
+    messages: [{$ref: '#/channels/commandsIn/messages/auth'}]
     reply:
-      channel: {$ref: '#/channels/commands'}
+      channel: {$ref: '#/channels/commandsOut'}
       messages:
-        - $ref: '#/channels/commands/messages/ready'
-        - $ref: '#/channels/commands/messages/error'
+        - $ref: '#/channels/commandsOut/messages/ready'
+        - $ref: '#/channels/commandsOut/messages/error'
   receiveCommand:
     action: receive
-    channel: {$ref: '#/channels/commands'}
+    channel: {$ref: '#/channels/commandsIn'}
     summary: A command from an admitted client, one 100-byte packet.
     messages:
-      - $ref: '#/channels/commands/messages/joinRoom'
-      - $ref: '#/channels/commands/messages/leaveRoom'
-      - $ref: '#/channels/commands/messages/listRooms'
-      - $ref: '#/channels/commands/messages/listClients'
-      - $ref: '#/channels/commands/messages/content'
-      - $ref: '#/channels/commands/messages/deleteRoom'
-      - $ref: '#/channels/commands/messages/setClientName'
-      - $ref: '#/channels/commands/messages/setClientCustomAttributes'
-      - $ref: '#/channels/commands/messages/setRoomCustomAttributes'
-      - $ref: '#/channels/commands/messages/setRoomKeepOpen'
-      - $ref: '#/channels/commands/messages/clientIdRequest'
-      - $ref: '#/channels/commands/messages/sendError'
-      - $ref: '#/channels/commands/messages/roomCommand'
-      - $ref: '#/channels/commands/messages/unknownCommand'
+      - $ref: '#/channels/commandsIn/messages/joinRoom'
+      - $ref: '#/channels/commandsIn/messages/leaveRoom'
+      - $ref: '#/channels/commandsIn/messages/listRooms'
+      - $ref: '#/channels/commandsIn/messages/listClients'
+      - $ref: '#/channels/commandsIn/messages/content'
+      - $ref: '#/channels/commandsIn/messages/deleteRoom'
+      - $ref: '#/channels/commandsIn/messages/setClientName'
+      - $ref: '#/channels/commandsIn/messages/setClientCustomAttributes'
+      - $ref: '#/channels/commandsIn/messages/setRoomCustomAttributes'
+      - $ref: '#/channels/commandsIn/messages/setRoomKeepOpen'
+      - $ref: '#/channels/commandsIn/messages/clientIdRequest'
+      - $ref: '#/channels/commandsIn/messages/sendError'
+      - $ref: '#/channels/commandsIn/messages/roomCommand'
+      - $ref: '#/channels/commandsIn/messages/unknownCommand'
   sendCommand:
     action: send
-    channel: {$ref: '#/channels/commands'}
+    channel: {$ref: '#/channels/commandsOut'}
     summary: What the relay sends to a client, one 100-byte packet each.
     messages:
-      - $ref: '#/channels/commands/messages/joinRoomOk'
-      - $ref: '#/channels/commands/messages/leaveRoomOk'
-      - $ref: '#/channels/commands/messages/roomList'
-      - $ref: '#/channels/commands/messages/clientList'
-      - $ref: '#/channels/commands/messages/contentOffer'
-      - $ref: '#/channels/commands/messages/clearContent'
-      - $ref: '#/channels/commands/messages/roomDeleted'
-      - $ref: '#/channels/commands/messages/clientIdReply'
-      - $ref: '#/channels/commands/messages/clientUpdate'
-      - $ref: '#/channels/commands/messages/roomUpdate'
-      - $ref: '#/channels/commands/messages/clientDisconnected'
-      - $ref: '#/channels/commands/messages/sendErrorOut'
-      - $ref: '#/channels/commands/messages/roomCommandOut'
+      - $ref: '#/channels/commandsOut/messages/joinRoomOk'
+      - $ref: '#/channels/commandsOut/messages/leaveRoomOk'
+      - $ref: '#/channels/commandsOut/messages/roomList'
+      - $ref: '#/channels/commandsOut/messages/clientList'
+      - $ref: '#/channels/commandsOut/messages/contentOffer'
+      - $ref: '#/channels/commandsOut/messages/clearContent'
+      - $ref: '#/channels/commandsOut/messages/roomDeleted'
+      - $ref: '#/channels/commandsOut/messages/clientIdReply'
+      - $ref: '#/channels/commandsOut/messages/clientUpdate'
+      - $ref: '#/channels/commandsOut/messages/roomUpdate'
+      - $ref: '#/channels/commandsOut/messages/clientDisconnected'
+      - $ref: '#/channels/commandsOut/messages/sendErrorOut'
+      - $ref: '#/channels/commandsOut/messages/roomCommandOut'
   commandsPose:
     action: receive
-    channel: {$ref: '#/channels/commands'}
-    messages: [{$ref: '#/channels/commands/messages/entityPacket'}]
+    channel: {$ref: '#/channels/commandsIn'}
+    messages: [{$ref: '#/channels/commandsIn/messages/entityPacket'}]
     summary: A pose as a datagram, stamped and passed to the other clients of the room. Anything but 100 bytes is ignored.
     bindings:
       x-webtransport: {delivery: datagram}
   commandsPoseOut:
     action: send
-    channel: {$ref: '#/channels/commands'}
-    messages: [{$ref: '#/channels/commands/messages/entityPacket'}]
+    channel: {$ref: '#/channels/commandsOut'}
+    messages: [{$ref: '#/channels/commandsOut/messages/entityPacket'}]
     summary: A pose from another client of the room, as a datagram.
     bindings:
       x-webtransport: {delivery: datagram}
@@ -493,11 +516,12 @@ components:
     echoBytes:
       name: echoBytes
       contentType: application/octet-stream
-      payload: {type: string, contentEncoding: binary}
+      payload: {type: string, format: binary}
 
     # ---- commands: each is one 100-byte packet. `x-wire` gives the type number, who sends it and its data's fields.
     joinRoom:
       name: joinRoom
+      headers: {type: object, required: [type], properties: {type: {const: 1}}}
       summary: Join a room, creating it if nobody has the name.
       description: >-
         The creator sends the room's content, then `content` makes the room joinable. A later joiner must have the
@@ -517,29 +541,35 @@ components:
           ignore_version_check: {type: boolean}
           generic_protocol: {type: boolean}
       examples:
-        - payload: {room: demo, blender_version: 5.0.1, mixer_version: '1.0', ignore_version_check: false, generic_protocol: false}
+        - headers: {type: 1}
+          payload: {room: demo, blender_version: 5.0.1, mixer_version: '1.0', ignore_version_check: false, generic_protocol: false}
     joinRoomOk:
       name: joinRoomOk
+      headers: {type: object, required: [type], properties: {type: {const: 1}}}
       summary: You are in the room.
       x-wire: {type: 1, from: server, fields: [[room, string]]}
       payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
     leaveRoom:
       name: leaveRoom
+      headers: {type: object, required: [type], properties: {type: {const: 3}}}
       x-wire: {type: 3, from: client, fields: []}
       payload: {type: object, additionalProperties: false}
-      examples: [{payload: {}}]
+      examples: [{headers: {type: 3}, payload: {}}]
     leaveRoomOk:
       name: leaveRoomOk
+      headers: {type: object, required: [type], properties: {type: {const: 3}}}
       summary: You left. An empty room is deleted unless it is kept open.
       x-wire: {type: 3, from: server, fields: []}
       payload: {type: object, additionalProperties: false}
     listRooms:
       name: listRooms
+      headers: {type: object, required: [type], properties: {type: {const: 4}}}
       x-wire: {type: 4, from: client, fields: []}
       payload: {type: object, additionalProperties: false}
-      examples: [{payload: {}}]
+      examples: [{headers: {type: 4}, payload: {}}]
     roomList:
       name: roomList
+      headers: {type: object, required: [type], properties: {type: {const: 4}}}
       summary: The rooms the token covers, by name, with their attributes.
       x-wire: {type: 4, from: server, fields: [[rooms, json]]}
       payload:
@@ -552,11 +582,13 @@ components:
             additionalProperties: {$ref: '#/components/schemas/roomAttributes'}
     listClients:
       name: listClients
+      headers: {type: object, required: [type], properties: {type: {const: 14}}}
       x-wire: {type: 14, from: client, fields: []}
       payload: {type: object, additionalProperties: false}
-      examples: [{payload: {}}]
+      examples: [{headers: {type: 14}, payload: {}}]
     clientList:
       name: clientList
+      headers: {type: object, required: [type], properties: {type: {const: 14}}}
       summary: You, and the clients in rooms the token covers, by id.
       x-wire: {type: 14, from: server, fields: [[clients, json]]}
       payload:
@@ -569,43 +601,51 @@ components:
             additionalProperties: {$ref: '#/components/schemas/clientAttributes'}
     content:
       name: content
+      headers: {type: object, required: [type], properties: {type: {const: 5}}}
       summary: The creator says the room's content is complete, which makes the room joinable.
       x-wire: {type: 5, from: client, fields: []}
       payload: {type: object, additionalProperties: false}
-      examples: [{payload: {}}]
+      examples: [{headers: {type: 5}, payload: {}}]
     contentOffer:
       name: contentOffer
+      headers: {type: object, required: [type], properties: {type: {const: 5}}}
       summary: Sent to the creator of a room, to ask for the content now.
       x-wire: {type: 5, from: server, fields: []}
       payload: {type: object, additionalProperties: false}
     clearContent:
       name: clearContent
+      headers: {type: object, required: [type], properties: {type: {const: 6}}}
       summary: A joiner is about to get the stored commands, in order, and then `joinRoomOk`.
       x-wire: {type: 6, from: server, fields: []}
       payload: {type: object, additionalProperties: false}
     deleteRoom:
       name: deleteRoom
+      headers: {type: object, required: [type], properties: {type: {const: 7}}}
       summary: Delete an empty room. Anything else is ignored.
       x-wire: {type: 7, from: client, fields: [[room, raw]]}
       payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
-      examples: [{payload: {room: demo}}]
+      examples: [{headers: {type: 7}, payload: {room: demo}}]
     roomDeleted:
       name: roomDeleted
+      headers: {type: object, required: [type], properties: {type: {const: 21}}}
       x-wire: {type: 21, from: server, fields: [[room, string]]}
       payload: {type: object, additionalProperties: false, required: [room], properties: {room: {type: string}}}
     setClientName:
       name: setClientName
+      headers: {type: object, required: [type], properties: {type: {const: 11}}}
       x-wire: {type: 11, from: client, fields: [[user_name, raw]]}
       payload: {type: object, additionalProperties: false, required: [user_name], properties: {user_name: {type: string}}}
-      examples: [{payload: {user_name: Sam}}]
+      examples: [{headers: {type: 11}, payload: {user_name: Sam}}]
     setClientCustomAttributes:
       name: setClientCustomAttributes
+      headers: {type: object, required: [type], properties: {type: {const: 15}}}
       summary: Merge attributes into the client's, and announce the changed ones as `clientUpdate`.
       x-wire: {type: 15, from: client, fields: [[attributes, json]]}
       payload: {type: object, additionalProperties: false, required: [attributes], properties: {attributes: {type: object}}}
-      examples: [{payload: {attributes: {color: red}}}]
+      examples: [{headers: {type: 15}, payload: {attributes: {color: red}}}]
     setRoomCustomAttributes:
       name: setRoomCustomAttributes
+      headers: {type: object, required: [type], properties: {type: {const: 16}}}
       summary: Merge attributes into a room's, and announce the changed ones as `roomUpdate`.
       x-wire: {type: 16, from: client, fields: [[room, string], [attributes, json]]}
       payload:
@@ -613,27 +653,31 @@ components:
         additionalProperties: false
         required: [room, attributes]
         properties: {room: {type: string}, attributes: {type: object}}
-      examples: [{payload: {room: demo, attributes: {scene: cube}}}]
+      examples: [{headers: {type: 16}, payload: {room: demo, attributes: {scene: cube}}}]
     setRoomKeepOpen:
       name: setRoomKeepOpen
+      headers: {type: object, required: [type], properties: {type: {const: 17}}}
       x-wire: {type: 17, from: client, fields: [[room, string], [keep_open, bool]]}
       payload:
         type: object
         additionalProperties: false
         required: [room, keep_open]
         properties: {room: {type: string}, keep_open: {type: boolean}}
-      examples: [{payload: {room: demo, keep_open: true}}]
+      examples: [{headers: {type: 17}, payload: {room: demo, keep_open: true}}]
     clientIdRequest:
       name: clientIdRequest
+      headers: {type: object, required: [type], properties: {type: {const: 18}}}
       x-wire: {type: 18, from: client, fields: []}
       payload: {type: object, additionalProperties: false}
-      examples: [{payload: {}}]
+      examples: [{headers: {type: 18}, payload: {}}]
     clientIdReply:
       name: clientIdReply
+      headers: {type: object, required: [type], properties: {type: {const: 18}}}
       x-wire: {type: 18, from: server, fields: [[id, raw]]}
       payload: {type: object, additionalProperties: false, required: [id], properties: {id: {type: string, minLength: 1}}}
     clientUpdate:
       name: clientUpdate
+      headers: {type: object, required: [type], properties: {type: {const: 19}}}
       summary: Only what changed, by client id. To clients whose token covers the room, and to the client itself.
       x-wire: {type: 19, from: server, fields: [[update, json]]}
       payload:
@@ -643,6 +687,7 @@ components:
         properties: {update: {type: object, minProperties: 1, maxProperties: 1}}
     roomUpdate:
       name: roomUpdate
+      headers: {type: object, required: [type], properties: {type: {const: 20}}}
       summary: Only what changed, by room name. To clients whose token covers the room.
       x-wire: {type: 20, from: server, fields: [[update, json]]}
       payload:
@@ -652,16 +697,19 @@ components:
         properties: {update: {type: object, minProperties: 1, maxProperties: 1}}
     clientDisconnected:
       name: clientDisconnected
+      headers: {type: object, required: [type], properties: {type: {const: 22}}}
       x-wire: {type: 22, from: server, fields: [[id, string]]}
       payload: {type: object, additionalProperties: false, required: [id], properties: {id: {type: string}}}
     sendError:
       name: sendError
+      headers: {type: object, required: [type], properties: {type: {const: 12}}}
       summary: An error a client reports, which the relay passes to the room.
       x-wire: {type: 12, from: client, fields: [[message, string]]}
       payload: {type: object, additionalProperties: false, required: [message], properties: {message: {type: string}}}
-      examples: [{payload: {message: something broke}}]
+      examples: [{headers: {type: 12}, payload: {message: something broke}}]
     sendErrorOut:
       name: sendErrorOut
+      headers: {type: object, required: [type], properties: {type: {const: 12}}}
       summary: A refusal, or an error another client reported.
       x-wire: {type: 12, from: server, fields: [[message, string]]}
       payload:
@@ -687,6 +735,7 @@ components:
               - {pattern: '^something broke$'}
     roomCommand:
       name: roomCommand
+      headers: {type: object, required: [type], properties: {type: {type: integer, minimum: 101, maximum: 65535}}}
       summary: Any command with a type above 100 that is not listed, such as an entity state (210, 100 bytes) or its removal (211, 4 bytes).
       description: >-
         Stored for late joiners and passed to the room's other members. A newer entity state replaces the older one of
@@ -701,9 +750,10 @@ components:
         properties:
           type: {type: integer, minimum: 101, maximum: 65535}
           data: {type: string, pattern: '^([0-9a-f]{2})*$', description: The data as lowercase hex.}
-      examples: [{payload: {type: 150, data: 0a0b0c}}]
+      examples: [{headers: {type: 150}, payload: {type: 150, data: 0a0b0c}}]
     roomCommandOut:
       name: roomCommandOut
+      headers: {type: object, required: [type], properties: {type: {type: integer, minimum: 101, maximum: 65535}}}
       summary: A room command from another member, or a stored one replayed to a joiner.
       x-wire: {typeFrom: payload, from: server, fields: [[data, bytes]]}
       payload:
@@ -715,6 +765,7 @@ components:
           data: {type: string, pattern: '^([0-9a-f]{2})*$'}
     unknownCommand:
       name: unknownCommand
+      headers: {type: object, required: [type], properties: {type: {type: integer, minimum: 1, maximum: 100, not: {enum: [1, 3, 4, 5, 7, 11, 12, 14, 15, 16, 17, 18]}}}}
       summary: A type of 100 or less that is not listed. Answered `Command N received but no handler for it on server`.
       x-wire: {typeFrom: payload, from: client, fields: [[data, bytes]]}
       payload:
@@ -724,7 +775,7 @@ components:
         properties:
           type: {type: integer, minimum: 1, maximum: 100}
           data: {type: string, pattern: '^([0-9a-f]{2})*$'}
-      examples: [{payload: {type: 2, data: ''}}]
+      examples: [{headers: {type: 2}, payload: {type: 2, data: ''}}]
 
   schemas:
     hello:
@@ -833,7 +884,7 @@ components:
           enum: [unauthenticated, denied, locked, bad_message, bad_patch, bad_packet, unavailable]
     packet:
       type: string
-      contentEncoding: binary
+      format: binary
       description: Exactly 100 bytes.
     roomList:
       type: array
