@@ -6,7 +6,7 @@ defmodule MixerBroadcaster.ChartPropertyTest do
   @moduledoc """
   StreamData properties for the shared 24-patch color chart.
 
-    * GOLDEN:    the default chart is the classic 24-patch color chart: 24 patches, dark skin first, black last.
+    * GOLDEN:    the default chart is the BabelColor ColorChecker defined in CIELAB: 24 patches, dark skin first, black last.
     * INVARIANT: any in-range set is read back unchanged and touches no other patch.
     * CONTROL:   an out-of-range patch or channel is refused and leaves the chart as it was.
   """
@@ -18,9 +18,9 @@ defmodule MixerBroadcaster.ChartPropertyTest do
   test "golden: the default chart is the classic 24-patch color chart" do
     chart = Chart.default()
     assert map_size(chart) == 24
-    assert chart[0] == [115, 82, 68]
-    assert chart[18] == [243, 243, 242]
-    assert chart[23] == [52, 52, 52]
+    assert chart[0] == [117, 82, 67]
+    assert chart[18] == [245, 245, 240]
+    assert chart[23] == [50, 50, 50]
   end
 
   property "invariant: an accepted set is read back and touches nothing else" do
@@ -49,6 +49,6 @@ defmodule MixerBroadcaster.ChartPropertyTest do
              JSON.decode(Chart.snapshot(Chart.default()))
 
     assert length(patches) == 24
-    assert hd(patches) == [115, 82, 68]
+    assert hd(patches) == [117, 82, 67]
   end
 end
