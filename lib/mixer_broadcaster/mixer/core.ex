@@ -161,6 +161,10 @@ defmodule MixerBroadcaster.Mixer.Core do
         %{^name => %{keep_open: ^value}} ->
           {s, []}
 
+        %{^name => %{members: [], keep_open: true}} when value == false ->
+          # keep open was the only thing holding an empty room; turning it off lets it go, as the last leaver would have
+          delete_room(s, name)
+
         %{^name => room} ->
           s = put_room(s, %{room | keep_open: value})
           {s, room_update(s, name, %{"keep_open" => value})}
