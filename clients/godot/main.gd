@@ -100,6 +100,20 @@ func _http(method: int, url: String, body := "", headers := PackedStringArray())
 		_log("http %s: result %d status %d" % [url, res[0], res[1]], "red")
 	return res[3] if res[1] == 200 else PackedByteArray()
 
+# The minter may not listen yet when the client starts right after the relay: retry with a growing wait.
+func _mint_with_retry(body: String, attempts := 6) -> Variant:
+	var raw := PackedByteArray()
+	for attempt in range(attempts):
+		raw = await _http(HTTPClient.METHOD_POST, minter + "/mint", body, PackedStringArray(["content-type: application/json"]))
+		var minted: Variant = JSON.parse_string(raw.get_string_from_utf8())
+		if typeof(minted) == TYPE_DICTIONARY and minted.has("token"):
+			return minted
+		var wait := 0.5 * pow(2.0, attempt)
+		_log("the minter gave no token (attempt %d/%d): %s; retrying in %.1fs" % [attempt + 1, attempts, raw.get_string_from_utf8().left(120), wait], "orange")
+		await get_tree().create_timer(wait).timeout
+	_log("the minter gave no token after %d attempts" % attempts, "red")
+	return null
+
 func _b64u(b: PackedByteArray) -> String:
 	return Marshalls.raw_to_base64(b).replace("+", "-").replace("/", "_").replace("=", "")
 
@@ -152,10 +166,8 @@ func _run() -> void:
 
 	_log("asking the minter for a token (read)")
 	var body := JSON.stringify({"room": room, "key": _b64u(pub), "ops": ["read"]})
-	var raw: PackedByteArray = await _http(HTTPClient.METHOD_POST, minter + "/mint", body, PackedStringArray(["content-type: application/json"]))
-	var minted: Variant = JSON.parse_string(raw.get_string_from_utf8())
-	if typeof(minted) != TYPE_DICTIONARY or not minted.has("token"):
-		_log("the minter gave no token: %s" % raw.get_string_from_utf8().left(120), "red")
+	var minted: Variant = await _mint_with_retry(body)
+	if typeof(minted) != TYPE_DICTIONARY:
 		return
 	_log("token minted, %d chars" % String(minted["token"]).length(), "lightgreen")
 
