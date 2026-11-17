@@ -28,6 +28,55 @@ defmodule MixerBroadcaster.Mesh do
   @spec ttl() :: pos_integer()
   def ttl, do: @ttl
 
+  @budget 900
+
+  @doc """
+  A mesh reply cut into pieces that each fit one datagram (about `@budget` bytes of JSON). The first piece is the reply
+  itself with as many chunk URLs as fit, plus `"n"`, how many there are in all; each later piece is
+  `{"t":"mesh_more","digest":hex,"from":k,"chunks":[...]}`. Anything that is not a mesh reply, or already fits, comes
+  back as it is. A single URL longer than the budget still goes out alone.
+  """
+  def split(reply, budget \\ @budget) when is_binary(reply) do
+    with true <- byte_size(reply) > budget,
+         {:ok, %{"t" => "mesh", "chunks" => urls} = head} <- JSON.decode(reply) do
+      {first, rest} = take(urls, Map.put(head, "n", length(urls)), budget)
+
+      [
+        JSON.encode!(Map.put(Map.put(head, "n", length(urls)), "chunks", first))
+        | more(rest, head["digest"], length(first), budget)
+      ]
+    else
+      _ -> [reply]
+    end
+  end
+
+  defp take(urls, head, budget) do
+    fit(urls, [], byte_size(JSON.encode!(Map.put(head, "chunks", []))), budget)
+  end
+
+  defp more([], _digest, _from, _budget), do: []
+
+  defp more(urls, digest, from, budget) do
+    base = %{"t" => "mesh_more", "digest" => digest, "from" => from}
+    {part, rest} = fit(urls, [], byte_size(JSON.encode!(Map.put(base, "chunks", []))) + 8, budget)
+
+    [
+      JSON.encode!(Map.put(base, "chunks", part))
+      | more(rest, digest, from + length(part), budget)
+    ]
+  end
+
+  # take URLs while the piece stays within the budget; always at least one, so the split ends
+  defp fit([], acc, _size, _budget), do: {Enum.reverse(acc), []}
+
+  defp fit([url | rest] = all, acc, size, budget) do
+    cost = byte_size(url) + 3
+
+    if acc != [] and size + cost > budget,
+      do: {Enum.reverse(acc), all},
+      else: fit(rest, [url | acc], size + cost, budget)
+  end
+
   @doc "The reply for a mesh request from `state` (a hub session). Never raises."
   @spec grant(term(), term()) :: String.t()
   def grant(%{token: token, thumb: thumb, room: room, mode: mode}, hex)
@@ -46,7 +95,8 @@ defmodule MixerBroadcaster.Mesh do
 
   def grant(_state, _hex), do: @denied
 
-  defp store, do: Application.get_env(:mixer_broadcaster, :blob_access, MixerBroadcaster.Mixer.Store.S3)
+  defp store,
+    do: Application.get_env(:mixer_broadcaster, :blob_access, MixerBroadcaster.Mixer.Store.S3)
 
   defp urls(digest) do
     with {:ok, index} <- store().object(Caibx.index_key(digest)),
@@ -55,7 +105,14 @@ defmodule MixerBroadcaster.Mesh do
          true <- length(ids) <= @max_chunks or {:error, :unavailable},
          {:ok, index_url} <- store().presign_get(Caibx.index_key(digest), @ttl),
          {:ok, chunk_urls} <- all(ids) do
-      {:ok, %{t: "mesh", expires: @ttl, index: index_url, chunks: chunk_urls}}
+      {:ok,
+       %{
+         t: "mesh",
+         digest: Base.encode16(digest, case: :lower),
+         expires: @ttl,
+         index: index_url,
+         chunks: chunk_urls
+       }}
     else
       _ -> {:error, :unavailable}
     end

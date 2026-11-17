@@ -75,7 +75,7 @@ defmodule MixerBroadcaster.Hub do
 
       {:pass, state} ->
         {state, reply} = handle_message(data, state)
-        {:ok, state, datagram_for(reply)}
+        {:ok, state, datagram_replies(reply)}
     end
   end
 
@@ -117,6 +117,18 @@ defmodule MixerBroadcaster.Hub do
   # a snapshot goes back to the asker; "ok"/"error" answer a stream only
   defp datagram_for("{\"t\":\"snapshot\"" <> _ = snapshot), do: [{:send_datagram, snapshot}]
   defp datagram_for(_), do: []
+
+  # A request that came as a datagram is answered as datagrams: a client such as Godot's `WebTransportPeer` reads no
+  # reply from a bidi stream. A pose's "ok" is dropped (it would answer every packet), and a mesh reply too big for one
+  # datagram is cut into several (`Mesh.split/1`).
+  defp datagram_replies(~s({"t":"ok"})), do: []
+  defp datagram_replies(~s({"t":"error","reason":"bad_packet"})), do: []
+
+  defp datagram_replies("{\"t\":\"mesh\"" <> _ = reply),
+    do: Enum.map(Mesh.split(reply), &{:send_datagram, &1})
+
+  defp datagram_replies("{" <> _ = reply), do: [{:send_datagram, reply}]
+  defp datagram_replies(_), do: []
 
   defp handle_message(data, %{admitted: false} = state), do: gate(data, state)
 
