@@ -218,7 +218,11 @@ defmodule MixerBroadcaster.StrokeSpikeTest do
     <<head::binary-size(40), _::binary-size(8), tail::binary>> = p
     assert same_pose?(p, head <> <<9::64>> <> tail)
 
-    rounds = for i <- 1..@rounds, do: run_round(relay, i)
+    # the rounds share nothing but the relay (each has its own room), so they run at once
+    rounds =
+      1..@rounds
+      |> Task.async_stream(&run_round(relay, &1), timeout: 120_000, ordered: true)
+      |> Enum.map(fn {:ok, round} -> round end)
 
     for {r, n} <- Enum.with_index(rounds, 1) do
       total = @pens * @strokes
