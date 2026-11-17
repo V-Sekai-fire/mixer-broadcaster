@@ -58,11 +58,6 @@ servers:
     protocol: http
     protocolVersion: '1.1'
     description: Demo only. The production relay serves WebTransport and nothing else, so it answers none of this.
-  echo:
-    host: localhost:4433
-    protocol: webtransport
-    protocolVersion: h3
-    description: The bare transport (the test and benchmark handler), which the relay itself does not start.
 
 channels:
   room:
@@ -207,13 +202,6 @@ channels:
     messages:
       usdFile: {$ref: '#/components/messages/usdFile'}
       notFound: {$ref: '#/components/messages/notFound'}
-  echo:
-    address: /
-    servers:
-      - $ref: '#/servers/echo'
-    description: Any bidirectional stream is sent back as it came, and any datagram is sent back as a datagram.
-    messages:
-      echoBytes: {$ref: '#/components/messages/echoBytes'}
 
 operations:
   roomHello:
@@ -361,55 +349,89 @@ operations:
   demoRooms:
     action: receive
     channel: {$ref: '#/channels/rooms'}
-    messages: [{$ref: '#/channels/rooms/messages/roomListHttp'}]
+    messages: []
     summary: Demo only. The rooms with a player in them or a remembered entity.
     bindings:
       http: {method: GET}
+    reply:
+      channel: {$ref: '#/channels/rooms'}
+      messages:
+        - $ref: '#/channels/rooms/messages/roomListHttp'
   demoConnection:
     action: receive
     channel: {$ref: '#/channels/connection'}
-    messages: [{$ref: '#/channels/connection/messages/connectionInfo'}]
+    messages: []
     summary: Demo only. What a browser needs to reach the relay (port and certificate hash).
     bindings:
       http: {method: GET}
+    reply:
+      channel: {$ref: '#/channels/connection'}
+      messages:
+        - $ref: '#/channels/connection/messages/connectionInfo'
   demoHome:
     action: receive
     channel: {$ref: '#/channels/home'}
-    messages: [{$ref: '#/channels/home/messages/page'}]
+    messages: []
     summary: Demo only. The three.js client.
     bindings:
       http: {method: GET}
+    reply:
+      channel: {$ref: '#/channels/home'}
+      messages:
+        - $ref: '#/channels/home/messages/page'
   demoGeo:
     action: receive
     channel: {$ref: '#/channels/geo'}
-    messages: [{$ref: '#/channels/geo/messages/page'}]
+    messages: []
     summary: Demo only. The mesh viewer.
     bindings:
       http: {method: GET}
+    reply:
+      channel: {$ref: '#/channels/geo'}
+      messages:
+        - $ref: '#/channels/geo/messages/page'
   demoUsd:
     action: receive
     channel: {$ref: '#/channels/usd'}
-    messages:
-      - $ref: '#/channels/usd/messages/usdFile'
-      - $ref: '#/channels/usd/messages/notFound'
+    messages: []
     summary: Demo only. An extracted mesh by the SHA-256 of its desync index.
     bindings:
       http: {method: GET}
-  echoStream:
-    action: receive
-    channel: {$ref: '#/channels/echo'}
-    messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
     reply:
-      channel: {$ref: '#/channels/echo'}
-      messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
-  echoDatagram:
-    action: receive
-    channel: {$ref: '#/channels/echo'}
-    messages: [{$ref: '#/channels/echo/messages/echoBytes'}]
-    bindings:
-      x-webtransport: {delivery: datagram}
+      channel: {$ref: '#/channels/usd'}
+      messages:
+        - $ref: '#/channels/usd/messages/usdFile'
+        - $ref: '#/channels/usd/messages/notFound'
 
 components:
+  servers:
+    echo:
+      host: localhost:4433
+      protocol: webtransport
+      protocolVersion: h3
+      description: The bare transport (the test and benchmark handler), which the relay itself does not start.
+  channels:
+    echo:
+      address: /
+      servers:
+        - $ref: '#/components/servers/echo'
+      description: Any bidirectional stream is sent back as it came, and any datagram is sent back as a datagram.
+      messages:
+        echoBytes: {$ref: '#/components/messages/echoBytes'}
+  operations:
+    echoStream:
+      action: receive
+      channel: {$ref: '#/components/channels/echo'}
+      messages: [{$ref: '#/components/channels/echo/messages/echoBytes'}]
+      reply:
+        channel: {$ref: '#/components/channels/echo'}
+        messages: [{$ref: '#/components/channels/echo/messages/echoBytes'}]
+    echoDatagram:
+      action: receive
+      channel: {$ref: '#/components/channels/echo'}
+      messages: [{$ref: '#/components/channels/echo/messages/echoBytes'}]
+      bindings:
+        x-webtransport: {delivery: datagram}
   messages:
     hello:
       name: hello
@@ -492,24 +514,34 @@ components:
       payload: {$ref: '#/components/schemas/packet'}
     roomListHttp:
       name: roomListHttp
+      bindings:
+        http: {statusCode: 200}
       summary: JSON, 200.
       payload: {$ref: '#/components/schemas/roomList'}
     connectionInfo:
       name: connectionInfo
+      bindings:
+        http: {statusCode: 200}
       summary: JSON, 200. Whatever the demo configured, an empty object if nothing.
       payload: {type: object}
     page:
       name: page
+      bindings:
+        http: {statusCode: 200}
       summary: text/html, 200.
       contentType: text/html
       payload: {type: string}
     usdFile:
       name: usdFile
+      bindings:
+        http: {statusCode: 200}
       summary: text/plain, 200, when the file exists.
       contentType: text/plain
       payload: {type: string}
     notFound:
       name: notFound
+      bindings:
+        http: {statusCode: 404}
       summary: text/plain, 404, with the body `not found`. Also what every unknown path gets.
       contentType: text/plain
       payload: {type: string, const: not found}

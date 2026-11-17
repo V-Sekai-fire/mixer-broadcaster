@@ -35,3 +35,19 @@ Kept: the command path was one channel whose empty-payload commands (`leaveRoom`
 now two channels, `commandsIn` and `commandsOut`, and each command message carries its type number in `headers`, so a
 packet fits exactly one. A test checks every type number from 1 to 1200 on both channels. The packet schema now says
 `format: binary` instead of `contentEncoding: binary`. All frontier levels stay n/n and the AsyncAPI CLI validates.
+
+## Frontier iteration 3: the document against the AsyncAPI 3.1.0 text, point by point
+
+Read again against the specification and the HTTP binding (version 0.3.0). Kept:
+
+- The echo server, channel and operations are not run by the relay, and the specification says everything outside
+  `components` MUST be used by the application, so they moved into `components`.
+- The demo's GET routes were operations whose messages were the pages. A request is what the application receives and
+  the page is its reply, so each now has `messages: []` and the page, with its `statusCode` (200, and 404 for
+  `notFound`), in `reply`; the HTTP binding says `statusCode` is only read on reply messages.
+- Examples carry `headers` as well as `payload`, and a message example MUST validate against both.
+
+New checks in `test/asyncapi_test.exs`, each shown to fail on a planted fault: every `$ref` resolves, component keys
+match the allowed pattern, an operation's and its reply's messages are among their channel's, everything outside
+`components` is used, a channel address names exactly its parameters, an HTTP reply has a status code, and an example of
+any message fits that message and no other on its channel. All frontier levels stay n/n.
