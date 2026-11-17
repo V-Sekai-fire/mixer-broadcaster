@@ -14,9 +14,9 @@ import * as THREE from "https://unpkg.com/three@0.170.0/build/three.module.js";
 // three.js client of the relay: joins a room over HTTP/3 WebTransport, reads 100-byte entity packets
 // (contract-entity-packet layout), fetches the mesh named by the SHA-256 in each payload, and draws it unlit with the
 // per-face chart colours. Poses follow the packets. Demo page: the .usda comes from the demo's /usd route.
-const CHART = [[115,82,68],[194,150,130],[98,122,157],[87,108,67],[133,128,177],[103,189,170],[214,126,44],[80,91,166],
-  [193,90,99],[94,60,108],[157,188,64],[224,163,46],[56,61,150],[70,148,73],[175,54,60],[231,199,31],[187,86,149],
-  [8,133,161],[243,243,242],[200,200,200],[160,160,160],[122,122,121],[85,85,85],[52,52,52]];
+const CHART = [[117,82,67],[199,148,129],[91,123,157],[89,108,65],[131,129,176],[94,190,172],[223,124,44],[69,92,168],
+  [199,84,97],[92,59,104],[159,189,63],[231,162,39],[39,62,147],[67,148,73],[182,46,56],[240,200,22],
+  [193,84,149],[0,135,168],[245,245,240],[200,201,201],[160,161,161],[120,121,121],[83,84,85],[50,50,50]];
 const room = new URLSearchParams(location.search).get("room") || "geo";
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), antialias: false, preserveDrawingBuffer: true });
 renderer.setSize(480, 360, false);
