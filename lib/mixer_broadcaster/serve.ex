@@ -29,11 +29,14 @@ defmodule MixerBroadcaster.Serve do
   def root_key(_), do: {:error, :root_key}
 
   @doc "Set the policy: the relay verifies against `root`. Never `:off`."
+  @spec put_policy(<<_::256>>) :: :ok
   def put_policy(root) when byte_size(root) == 32 do
     Application.put_env(:mixer_broadcaster, :auth, %{root_key: root})
   end
 
   @doc "Start the listener, or answer why not. Nothing is listening unless this returns `{:ok, _}`."
+  @spec start(%{optional(String.t()) => String.t()}, keyword()) ::
+          {:ok, %{port: :inet.port_number(), cert_sha256: String.t()}} | {:error, term()}
   def start(env \\ System.get_env(), opts \\ []) do
     with {:ok, root} <- root_key(env["MB_ROOT_KEY"]),
          {:ok, ip} <- bind_ip(env["MB_BIND"]),

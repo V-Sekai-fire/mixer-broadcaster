@@ -9,9 +9,12 @@ defmodule MixerBroadcaster.Mixer.Store do
   @callback put(binary()) :: binary()
   @callback get(binary()) :: {:ok, binary()} | {:error, term()}
 
+  @spec impl() :: module()
   def impl, do: Application.get_env(:mixer_broadcaster, :mixer_store, __MODULE__.Memory)
+  @spec put(binary()) :: binary()
   def put(data), do: impl().put(data)
 
+  @spec get(term()) :: {:ok, binary()} | {:error, term()}
   def get(<<_::binary-size(32)>> = digest) do
     case impl().get(digest) do
       {:ok, data} = ok ->
@@ -30,6 +33,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     @table :mixer_store_memory
 
     # created by `Mixer.Server` when it starts, which owns it
+    @spec table_name() :: atom()
     def table_name, do: @table
 
     @impl true
@@ -64,6 +68,8 @@ defmodule MixerBroadcaster.Mixer.Store do
     end
 
     @doc "The signing headers for `method path` with `payload`, as a list of `{name, value}`."
+    @spec sign(String.t(), String.t(), String.t(), binary(), {String.t(), String.t()}, DateTime.t()) ::
+            [{String.t(), String.t()}]
     def sign(method, host, path, payload, {access, secret}, now) do
       amz = Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
       day = Calendar.strftime(now, "%Y%m%d")
@@ -133,6 +139,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     end
 
     @doc "Read any object of the bucket by key (the relay uses this for desync indexes). Never raises."
+    @spec object(String.t()) :: {:ok, binary()} | {:error, term()}
     def object(key) when is_binary(key) do
       case request_path("GET", key, "") do
         {:ok, {{_, 200, _}, _, body}} -> {:ok, body}
@@ -145,6 +152,7 @@ defmodule MixerBroadcaster.Mixer.Store do
     A URL that lets its bearer `GET` one object for `ttl` seconds, with no keys (AWS Signature V4, query string form).
     `{:error, :no_s3_keys}` when the relay has no keys.
     """
+    @spec presign_get(String.t(), 1..3600, DateTime.t()) :: {:ok, String.t()} | {:error, :no_s3_keys}
     def presign_get(key, ttl, now \\ DateTime.utc_now()) when is_binary(key) and ttl in 1..3600 do
       {endpoint, bucket} = conf()
       %URI{host: host, port: port} = URI.parse(endpoint)
@@ -162,6 +170,8 @@ defmodule MixerBroadcaster.Mixer.Store do
     end
 
     @doc "The signed query string for `presign_get/3`. Public so tests can pin it."
+    @spec presign_query(String.t(), String.t(), String.t(), 1..3600, {String.t(), String.t()}, DateTime.t()) ::
+            String.t()
     def presign_query(method, host, path, ttl, {access, secret}, now) do
       amz = Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
       day = Calendar.strftime(now, "%Y%m%d")

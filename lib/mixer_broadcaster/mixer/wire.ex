@@ -36,10 +36,14 @@ defmodule MixerBroadcaster.Mixer.Wire do
     client_id_wrapper: 1000
   }
 
+  @spec type(atom()) :: non_neg_integer()
   def type(name) when is_atom(name), do: Map.fetch!(@types, name)
+  @spec type_name(non_neg_integer()) :: atom() | nil
   def type_name(number), do: Enum.find_value(@types, fn {k, v} -> if v == number, do: k end)
 
   @type command :: %{type: non_neg_integer(), id: non_neg_integer(), data: binary()}
+  @typedoc "A command to send: `{type, data}`."
+  @type encoded :: {non_neg_integer(), binary()}
 
   @doc "A command to send: its type and data. It travels as one packet (`MixerBroadcaster.Command`), so there is no framing."
   @spec encode(non_neg_integer() | atom(), binary(), non_neg_integer()) ::
@@ -50,19 +54,25 @@ defmodule MixerBroadcaster.Mixer.Wire do
 
   # ---- fields ----
 
+  @spec string(binary()) :: binary()
   def string(s) when is_binary(s), do: <<byte_size(s)::little-32, s::binary>>
 
+  @spec read_string(binary()) :: {:ok, binary(), binary()} | :error
   def read_string(<<n::little-32, s::binary-size(n), rest::binary>>), do: {:ok, s, rest}
   def read_string(_), do: :error
 
+  @spec bool(boolean()) :: <<_::32>>
   def bool(true), do: <<1::little-32>>
   def bool(false), do: <<0::little-32>>
 
+  @spec read_bool(binary()) :: {:ok, boolean(), binary()} | :error
   def read_bool(<<v::little-32, rest::binary>>), do: {:ok, v == 1, rest}
   def read_bool(_), do: :error
 
+  @spec json(term()) :: binary()
   def json(term), do: string(IO.iodata_to_binary(JSON.encode_to_iodata!(term)))
 
+  @spec read_json(binary()) :: {:ok, term(), binary()} | :error
   def read_json(bin) do
     with {:ok, s, rest} <- read_string(bin),
          {:ok, term} <- JSON.decode(s) do

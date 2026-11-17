@@ -31,20 +31,27 @@ defmodule MixerBroadcaster.Chart do
     [52, 52, 52]
   ]
 
+  @type rgb :: [byte()]
+  @type t :: %{optional(non_neg_integer()) => rgb()}
+
+  @spec default() :: t()
   def default, do: @checker |> Enum.with_index() |> Map.new(fn {rgb, i} -> {i, rgb} end)
 
   @doc "Apply one patch change; `{:error, :bad_patch}` for anything outside 0..23 or a byte range."
+  @spec set(t(), term(), term()) :: {:ok, t()} | {:error, :bad_patch}
   def set(chart, id, [r, g, b] = rgb)
       when is_integer(id) and id in 0..23 and r in 0..255 and g in 0..255 and b in 0..255,
       do: {:ok, Map.put(chart, id, rgb)}
 
   def set(_chart, _id, _rgb), do: {:error, :bad_patch}
 
+  @spec snapshot(t()) :: binary()
   def snapshot(chart) do
     patches = for i <- 0..23, do: Map.fetch!(chart, i)
     IO.iodata_to_binary(JSON.encode_to_iodata!(%{t: "snapshot", patches: patches}))
   end
 
+  @spec set_message(non_neg_integer(), rgb()) :: binary()
   def set_message(id, rgb),
     do: IO.iodata_to_binary(JSON.encode_to_iodata!(%{t: "set", id: id, rgb: rgb}))
 end

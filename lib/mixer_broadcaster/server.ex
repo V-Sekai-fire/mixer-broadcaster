@@ -14,6 +14,7 @@ defmodule MixerBroadcaster.Server do
   Start a listener. Options: `:port` (0 picks a free one), `:certfile`, `:keyfile`, `:name`, `:handler`.
   Returns `{:ok, %{name: name, port: port}}`.
   """
+  @spec start(keyword()) :: {:ok, %{name: atom(), port: :inet.port_number()}} | {:error, term()}
   def start(opts) do
     name = Keyword.get(opts, :name, :mixer_broadcaster)
 
@@ -34,5 +35,6 @@ defmodule MixerBroadcaster.Server do
     end
   end
 
+  @spec stop(atom()) :: :ok | {:error, term()}
   def stop(name), do: :webtransport.stop_listener(name)
 end

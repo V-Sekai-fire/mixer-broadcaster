@@ -21,9 +21,11 @@ defmodule MixerBroadcaster.Mesh do
 
   @denied ~s({"t":"error","reason":"denied"})
 
+  @spec ttl() :: pos_integer()
   def ttl, do: @ttl
 
   @doc "The reply for a mesh request from `state` (a hub session). Never raises."
+  @spec grant(term(), term()) :: String.t()
   def grant(%{token: token, thumb: thumb, room: room, mode: mode}, hex)
       when is_binary(token) and is_binary(thumb) and is_binary(hex) do
     with {:ok, digest} <- Base.decode16(hex, case: :mixed),

@@ -16,10 +16,18 @@ defmodule MixerBroadcaster.Auth do
   @nonce_bytes 32
   @max_tries 3
 
+  @type config :: map() | :off | nil
+  @type nonce :: <<_::256>>
+  @type thumbprint :: <<_::256>>
+
+  @spec max_tries() :: pos_integer()
   def max_tries, do: @max_tries
+  @spec nonce() :: nonce()
   def nonce, do: :crypto.strong_rand_bytes(@nonce_bytes)
+  @spec thumbprint(<<_::520>>) :: thumbprint()
   def thumbprint(<<4, _::binary-size(64)>> = pub), do: :crypto.hash(:sha256, pub)
 
+  @spec message(binary(), nonce()) :: binary()
   def message(room, nonce) when is_binary(room) and byte_size(nonce) == @nonce_bytes,
     do: <<"mixer-relay-v1", byte_size(room)::16, room::binary, nonce::binary>>
 
@@ -27,6 +35,7 @@ defmodule MixerBroadcaster.Auth do
   The message a Mixer session signs: "mixer-session-v1" || nonce. A session has no room in its path (a client joins
   rooms after it connects), so the proof is not bound to one; each join is checked against the token on its own.
   """
+  @spec session_message(nonce()) :: binary()
   def session_message(nonce) when byte_size(nonce) == @nonce_bytes,
     do: <<"mixer-session-v1", nonce::binary>>
 
@@ -35,6 +44,8 @@ defmodule MixerBroadcaster.Auth do
   with the room check deferred. Returns `{:ok, thumbprint, allow}`, where `allow.(room)` says whether the token covers
   that room (a token for several rooms, or narrowed by its holder, answers per room).
   """
+  @spec admit_session(config(), binary(), binary(), binary(), binary(), integer()) ::
+          {:ok, thumbprint(), (term() -> boolean())} | {:error, term()}
   def admit_session(%{root_key: root}, token, pub, sig, nonce, now)
       when is_binary(token) and is_binary(pub) and is_binary(sig) and is_binary(nonce) and
              byte_size(nonce) == @nonce_bytes do
@@ -58,6 +69,7 @@ defmodule MixerBroadcaster.Auth do
   Does this token let its holder do `op` (such as `"read"`) in `room`? The key is the thumbprint the session was admitted
   with. A token minted without the operation, or narrowed so it no longer names it, answers `false`.
   """
+  @spec allows?(config(), binary(), binary(), binary(), binary(), integer()) :: boolean()
   def allows?(%{root_key: root}, token, thumbprint, room, op, now)
       when is_binary(token) and is_binary(thumbprint) and is_binary(room) and is_binary(op) do
     match?(
@@ -75,6 +87,8 @@ defmodule MixerBroadcaster.Auth do
   defp session_proof_ok?(_, _, _), do: false
 
   @doc "The relay's decision. `config` is `%{root_key: <<_::256>>}`; anything else refuses."
+  @spec admit(config(), binary(), binary(), binary(), binary(), binary(), integer()) ::
+          {:ok, thumbprint()} | {:error, term()}
   def admit(%{root_key: root} = _config, token, pub, sig, room, nonce, now)
       when is_binary(token) and is_binary(pub) and is_binary(sig) and is_binary(nonce) do
     with true <- valid_pub?(pub) or {:error, :bad_key},
@@ -105,26 +119,31 @@ defmodule MixerBroadcaster.Auth do
 
   # ---- test and client helpers (a guest client does the same with its own library) ----
 
+  @spec generate_key() :: {binary(), binary()}
   def generate_key do
     {pub, priv} = :crypto.generate_key(:ecdh, :secp256r1)
     {pub, priv}
   end
 
+  @spec sign(binary(), binary(), nonce()) :: binary()
   def sign(priv, room, nonce) do
     :crypto.sign(:ecdsa, :sha256, message(room, nonce), [priv, :secp256r1]) |> der_to_raw()
   end
 
   @doc "The proof a client makes for a Mixer session (the test and the guest ELF do the same)."
+  @spec sign_session(binary(), nonce()) :: binary()
   def sign_session(priv, nonce),
     do: :crypto.sign(:ecdsa, :sha256, session_message(nonce), [priv, :secp256r1]) |> der_to_raw()
 
   # DER <-> raw r||s
+  @spec raw_to_der(<<_::512>>) :: binary()
   def raw_to_der(<<r::binary-size(32), s::binary-size(32)>>) do
     {rb, sb} = {int(r), int(s)}
     body = <<2, byte_size(rb), rb::binary, 2, byte_size(sb), sb::binary>>
     <<0x30, byte_size(body), body::binary>>
   end
 
+  @spec der_to_raw(binary()) :: binary()
   def der_to_raw(<<0x30, _len, 2, rl, r::binary-size(rl), 2, sl, s::binary-size(sl)>>),
     do: pad(r) <> pad(s)
 

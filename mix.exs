@@ -9,6 +9,7 @@ defmodule MixerBroadcaster.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: [demo: &demo/1],
+      dialyzer: [flags: [:error_handling, :extra_return, :missing_return]],
       description: "Broadcaster for Mixer: HTTP/3 WebTransport is the only network protocol.",
       licenses: ["MIT"]
     ]
