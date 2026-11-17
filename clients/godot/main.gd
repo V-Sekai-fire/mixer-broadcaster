@@ -108,10 +108,13 @@ func _mint_with_retry(body: String, attempts := 6) -> Variant:
 		var minted: Variant = JSON.parse_string(raw.get_string_from_utf8())
 		if typeof(minted) == TYPE_DICTIONARY and minted.has("token"):
 			return minted
+		var why := raw.get_string_from_utf8().left(120)
+		if attempt == attempts - 1:
+			_log("the minter gave no token after %d attempts: %s" % [attempts, why], "red")
+			break
 		var wait := 0.5 * pow(2.0, attempt)
-		_log("the minter gave no token (attempt %d/%d): %s; retrying in %.1fs" % [attempt + 1, attempts, raw.get_string_from_utf8().left(120), wait], "orange")
+		_log("the minter gave no token (attempt %d/%d): %s; retrying in %.1fs" % [attempt + 1, attempts, why, wait], "orange")
 		await get_tree().create_timer(wait).timeout
-	_log("the minter gave no token after %d attempts" % attempts, "red")
 	return null
 
 func _b64u(b: PackedByteArray) -> String:
