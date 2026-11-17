@@ -26,7 +26,9 @@ defmodule MixerBroadcaster.MixProject do
       {:plug, "~> 1.16"},
       # Property-based testing (Elixir's counterpart of Hypothesis)
       {:cbor, "~> 1.0"},
-      {:stream_data, "~> 1.1", only: [:dev, :test]}
+      {:stream_data, "~> 1.1", only: [:dev, :test]},
+      # Static analysis: `mix dialyzer`
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
   end
 

@@ -38,3 +38,13 @@ jobs:
         env:
           MIX_ENV: test
       - run: mix test
+      # Dialyzer on one OS is enough: the analysis is the same everywhere. The PLTs are cached.
+      - name: Cache the Dialyzer PLTs
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: _build/dev/*.plt
+          key: plt-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+      - name: Dialyzer
+        if: runner.os == 'Linux'
+        run: mix dialyzer

@@ -35,6 +35,19 @@ defmodule MixerBroadcaster.Rooms do
     |> Enum.map(&%{name: &1, players: Map.get(players, &1, 0), entities: Map.get(held, &1, 0)})
   end
 
+  @doc """
+  The mesh digests that poses in `room` name: the 32 bytes at the start of an entity's payload (byte 62), for every
+  class but `command`, whose bytes mean something else. All-zero (no mesh) is left out.
+  """
+  def mesh_digests(room) do
+    for <<_::binary-size(51), class, _::binary-size(10), digest::binary-size(32), _::binary>> <-
+          entities(room),
+        class != 128,
+        digest != <<0::256>>,
+        uniq: true,
+        do: digest
+  end
+
   def entities(room),
     do: Agent.get(__MODULE__, &(&1 |> Map.get({:entities, room}, %{}) |> Map.values()))
 
