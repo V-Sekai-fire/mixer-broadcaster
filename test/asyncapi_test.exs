@@ -157,22 +157,145 @@ defmodule MixerBroadcaster.AsyncApiTest do
 
   # ================= the document itself =================
 
-  test "golden: it is a 3.1 document, every example fits its payload, every message is on a channel",
+  test "golden: it is a 3.1 document, every example fits its headers and payload, every message is on a channel",
        %{doc: doc} do
     assert doc["asyncapi"] == "3.1.0"
     assert doc["servers"]["relay"]["protocol"] == "webtransport"
 
     for {name, msg} <- doc["components"]["messages"], ex <- msg["examples"] || [] do
-      assert valid_payload?(doc, name, ex["payload"]), "example of #{name} does not fit"
+      assert valid_payload?(doc, name, ex["payload"]),
+             "example of #{name} does not fit its payload"
+
+      if msg["headers"] do
+        assert resolve_headers_ok?(doc, name, ex["headers"]),
+               "example of #{name} does not fit its headers"
+      end
     end
 
     on_channels =
-      for {_, ch} <- doc["channels"],
+      for {_, ch} <- Map.merge(doc["channels"], doc["components"]["channels"] || %{}),
           {_, %{"$ref" => ref}} <- ch["messages"],
           into: MapSet.new(),
           do: ref |> String.split("/") |> List.last()
 
     assert Map.keys(doc["components"]["messages"]) -- MapSet.to_list(on_channels) == []
+  end
+
+  defp resolve_headers_ok?(doc, name, value),
+    do:
+      ExJsonSchema.Validator.valid?(resolve(doc, "#/components/messages/#{name}/headers"), value)
+
+  # ---- what the AsyncAPI 3.1.0 specification itself requires of a document
+
+  defp pointer(doc, "#/" <> path), do: get_in(doc, String.split(path, "/"))
+
+  defp refs(%{"$ref" => ref}), do: [ref]
+  defp refs(map) when is_map(map), do: map |> Map.values() |> Enum.flat_map(&refs/1)
+  defp refs(list) when is_list(list), do: Enum.flat_map(list, &refs/1)
+  defp refs(_), do: []
+
+  defp all_operations(doc),
+    do: Map.merge(doc["operations"], doc["components"]["operations"] || %{})
+
+  test "conformance: every $ref resolves, and component keys are in the form the specification allows",
+       %{doc: doc} do
+    for ref <- refs(doc), do: assert(pointer(doc, ref) != nil, "#{ref} does not resolve")
+
+    for {_, section} <- doc["components"], is_map(section), key <- Map.keys(section) do
+      assert key =~ ~r/^[a-zA-Z0-9\.\-_]+$/, "component key #{key}"
+    end
+
+    for key <- Map.keys(doc["servers"]), do: assert(key =~ ~r/^[A-Za-z0-9_\-]+$/)
+  end
+
+  test "conformance: an operation's messages are among its channel's, and so are its reply's", %{
+    doc: doc
+  } do
+    for {id, op} <- all_operations(doc) do
+      channel = op["channel"]["$ref"]
+
+      for %{"$ref" => ref} <- op["messages"] || [],
+          do:
+            assert(
+              String.starts_with?(ref, channel <> "/messages/"),
+              "#{id}: #{ref} is not on #{channel}"
+            )
+
+      if reply = op["reply"] do
+        for %{"$ref" => ref} <- reply["messages"] || [],
+            do:
+              assert(
+                String.starts_with?(ref, reply["channel"]["$ref"] <> "/messages/"),
+                "#{id}: reply #{ref} is not on its channel"
+              )
+      end
+    end
+  end
+
+  test "conformance: everything outside components is used, and a channel address names exactly its parameters",
+       %{doc: doc} do
+    used_servers =
+      for {_, ch} <- doc["channels"],
+          %{"$ref" => r} <- ch["servers"] || [],
+          into: MapSet.new(),
+          do: r
+
+    for key <- Map.keys(doc["servers"]),
+        do: assert("#/servers/#{key}" in used_servers, "server #{key} is not used")
+
+    used_channels =
+      for {_, op} <- doc["operations"], into: MapSet.new(), do: op["channel"]["$ref"]
+
+    for key <- Map.keys(doc["channels"]),
+        do: assert("#/channels/#{key}" in used_channels, "channel #{key} has no operation")
+
+    for {key, ch} <- Map.merge(doc["channels"], doc["components"]["channels"] || %{}) do
+      in_address =
+        ~r/\{(\w+)\}/
+        |> Regex.scan(ch["address"] || "", capture: :all_but_first)
+        |> List.flatten()
+        |> Enum.sort()
+
+      assert in_address == (ch["parameters"] || %{}) |> Map.keys() |> Enum.sort(),
+             "channel #{key} parameters"
+    end
+  end
+
+  test "conformance: an HTTP reply carries its status code, and a request that has no body lists no message",
+       %{doc: doc} do
+    for {id, op} <- all_operations(doc), op["bindings"]["http"] do
+      assert op["messages"] == [], "#{id}: a GET has no message"
+
+      assert op["bindings"]["http"]["method"] in ~w(GET POST PUT PATCH DELETE HEAD OPTIONS CONNECT TRACE)
+
+      for %{"$ref" => ref} <- op["reply"]["messages"] do
+        code =
+          pointer(doc, ref)["$ref"]
+          |> then(&pointer(doc, &1))
+          |> get_in(["bindings", "http", "statusCode"])
+
+        assert is_integer(code) and code in 100..599, "#{id}: #{ref} has no status code"
+      end
+    end
+  end
+
+  test "conformance: every message sent to a channel is valid against one and only one message of it",
+       %{doc: doc} do
+    for {channel, ch} <- doc["channels"] do
+      names =
+        for {_, %{"$ref" => ref}} <- ch["messages"], do: ref |> String.split("/") |> List.last()
+
+      for name <- names, ex <- message(doc, name)["examples"] || [] do
+        hits =
+          for other <- names,
+              valid_payload?(doc, other, ex["payload"]),
+              is_nil(message(doc, other)["headers"]) or
+                resolve_headers_ok?(doc, other, ex["headers"]),
+              do: other
+
+        assert hits == [name], "#{channel}: an example of #{name} fits #{inspect(hits)}"
+      end
+    end
   end
 
   test "invariant: every command type the code knows is in the document, and every listed type is the code's",
