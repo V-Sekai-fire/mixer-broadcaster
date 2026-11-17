@@ -15,7 +15,7 @@ defmodule MixerBroadcaster.Hub do
   """
   @behaviour :webtransport_handler
 
-  alias MixerBroadcaster.{Auth, Chart, Clock, Loss, Packet, Rooms}
+  alias MixerBroadcaster.{Auth, Chart, Clock, Loss, Mesh, Packet, Rooms}
 
   # Browsers always send an Origin; the library refuses those with 403 unless the handler opts in.
   # Only the origins of our own page are let in; non-browser clients send no Origin and always pass.
@@ -44,6 +44,8 @@ defmodule MixerBroadcaster.Hub do
       admitted: mode == :off,
       nonce: nil,
       tries: 0,
+      token: nil,
+      thumb: nil,
       loss: Loss.from_env(),
       live: MapSet.new()
     }
@@ -143,6 +145,9 @@ defmodule MixerBroadcaster.Hub do
             {state, ~s({"t":"error","reason":"bad_patch"})}
         end
 
+      {:ok, %{"t" => "mesh", "digest" => hex}} ->
+        {state, Mesh.grant(state, hex)}
+
       _ ->
         {state, ~s({"t":"error","reason":"bad_message"})}
     end
@@ -176,11 +181,11 @@ defmodule MixerBroadcaster.Hub do
     with {:ok, token} <- unb64(t),
          {:ok, pub} <- unb64(k),
          {:ok, sig} <- unb64(sg),
-         {:ok, _thumbprint} <-
+         {:ok, thumbprint} <-
            Auth.admit(mode, token, pub, sig, room, nonce, System.os_time(:second)) do
       join(room)
       send(self(), :replay)
-      {%{state | admitted: true}, ~s({"t":"ready"})}
+      {%{state | admitted: true, token: token, thumb: thumbprint}, ~s({"t":"ready"})}
     else
       _ -> {state, ~s({"t":"error","reason":"denied"})}
     end

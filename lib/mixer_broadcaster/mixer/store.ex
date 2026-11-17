@@ -105,10 +105,14 @@ defmodule MixerBroadcaster.Mixer.Store do
       end
     end
 
-    defp request(method, digest, payload) do
+    defp request(method, digest, payload),
+      do: request_path(method, "blob/" <> hex(digest), payload)
+
+    # one object by its key under the bucket
+    defp request_path(method, key, payload) do
       {endpoint, bucket} = conf()
       %URI{host: host, port: port} = URI.parse(endpoint)
-      path = "/#{bucket}/blob/" <> hex(digest)
+      path = "/#{bucket}/" <> key
 
       with {:ok, k} <- keys() do
         headers =
@@ -127,6 +131,64 @@ defmodule MixerBroadcaster.Mixer.Store do
         :error -> {:error, :no_s3_keys}
       end
     end
+
+    @doc "Read any object of the bucket by key (the relay uses this for desync indexes). Never raises."
+    def object(key) when is_binary(key) do
+      case request_path("GET", key, "") do
+        {:ok, {{_, 200, _}, _, body}} -> {:ok, body}
+        {:ok, {{_, status, _}, _, _}} -> {:error, {:status, status}}
+        {:error, e} -> {:error, e}
+      end
+    end
+
+    @doc """
+    A URL that lets its bearer `GET` one object for `ttl` seconds, with no keys (AWS Signature V4, query string form).
+    `{:error, :no_s3_keys}` when the relay has no keys.
+    """
+    def presign_get(key, ttl, now \\ DateTime.utc_now()) when is_binary(key) and ttl in 1..3600 do
+      {endpoint, bucket} = conf()
+      %URI{host: host, port: port} = URI.parse(endpoint)
+
+      with {:ok, {access, secret}} <- keys() do
+        path = "/" <> bucket <> "/" <> key
+
+        {:ok,
+         endpoint <>
+           path <>
+           "?" <> presign_query("GET", "#{host}:#{port}", path, ttl, {access, secret}, now)}
+      else
+        :error -> {:error, :no_s3_keys}
+      end
+    end
+
+    @doc "The signed query string for `presign_get/3`. Public so tests can pin it."
+    def presign_query(method, host, path, ttl, {access, secret}, now) do
+      amz = Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
+      day = Calendar.strftime(now, "%Y%m%d")
+      scope = "#{day}/#{@region}/s3/aws4_request"
+
+      query = [
+        {"X-Amz-Algorithm", "AWS4-HMAC-SHA256"},
+        {"X-Amz-Credential", "#{access}/#{scope}"},
+        {"X-Amz-Date", amz},
+        {"X-Amz-Expires", Integer.to_string(ttl)},
+        {"X-Amz-SignedHeaders", "host"}
+      ]
+
+      canon_query = Enum.map_join(query, "&", fn {k, v} -> "#{enc(k)}=#{enc(v)}" end)
+
+      canon =
+        Enum.join([method, path, canon_query, "host:#{host}\n", "host", "UNSIGNED-PAYLOAD"], "\n")
+
+      to_sign =
+        Enum.join(["AWS4-HMAC-SHA256", amz, scope, hex(:crypto.hash(:sha256, canon))], "\n")
+
+      key = ("AWS4" <> secret) |> mac(day) |> mac(@region) |> mac("s3") |> mac("aws4_request")
+      canon_query <> "&X-Amz-Signature=" <> hex(mac(key, to_sign))
+    end
+
+    # RFC 3986 unreserved characters stay, everything else is %XX
+    defp enc(s), do: URI.encode(s, &URI.char_unreserved?/1)
 
     @impl true
     def put(data) do

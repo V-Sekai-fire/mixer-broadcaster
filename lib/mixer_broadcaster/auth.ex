@@ -54,6 +54,20 @@ defmodule MixerBroadcaster.Auth do
 
   def admit_session(_config, _token, _pub, _sig, _nonce, _now), do: {:error, :not_configured}
 
+  @doc """
+  Does this token let its holder do `op` (such as `"read"`) in `room`? The key is the thumbprint the session was admitted
+  with. A token minted without the operation, or narrowed so it no longer names it, answers `false`.
+  """
+  def allows?(%{root_key: root}, token, thumbprint, room, op, now)
+      when is_binary(token) and is_binary(thumbprint) and is_binary(room) and is_binary(op) do
+    match?(
+      {:ok, _},
+      Token.verify(token, root, %{room: room, thumbprint: thumbprint, now: now, op: op})
+    )
+  end
+
+  def allows?(_, _, _, _, _, _), do: false
+
   defp session_proof_ok?(pub, <<_::binary-size(64)>> = raw, nonce) do
     :crypto.verify(:ecdsa, :sha256, session_message(nonce), raw_to_der(raw), [pub, :secp256r1])
   end
