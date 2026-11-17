@@ -226,10 +226,11 @@ class RelayClient(QuicConnectionProtocol):
 
 
 class open_relay:
-    """`async with open_relay(host, port, cafile) as client:` opens the WebTransport session at `/mixer`."""
+    """`async with open_relay(host, port, cafile) as client:` opens the WebTransport session at `/mixer`, or at `path`
+    (a room is `/room/<name>`)."""
 
-    def __init__(self, host: str, port: int, cafile: str, server_name: str = "localhost") -> None:
-        self.host, self.port = host, port
+    def __init__(self, host: str, port: int, cafile: str, server_name: str = "localhost", path: bytes = PATH) -> None:
+        self.host, self.port, self.path = host, port, path
         c = QuicConfiguration(is_client=True, alpn_protocols=H3_ALPN, max_datagram_frame_size=65536)
         c.load_verify_locations(cafile)
         c.server_name = server_name
@@ -248,7 +249,7 @@ class open_relay:
                 (b":method", b"CONNECT"),
                 (b":scheme", b"https"),
                 (b":authority", f"{self.host}:{self.port}".encode()),
-                (b":path", PATH),
+                (b":path", self.path),
                 (b":protocol", b"webtransport"),
                 (b"sec-webtransport-http3-draft02", b"1"),
             ],
