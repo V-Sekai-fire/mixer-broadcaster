@@ -42,13 +42,52 @@ jobs:
         env:
           MIX_ENV: test
       - run: mix test
-      # Dialyzer on one OS is enough: the analysis is the same everywhere. The PLTs are cached.
+
+  # Its own job so the tests do not wait for it; one OS is enough because the analysis is the same everywhere.
+  dialyzer:
+    name: dialyzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # setup-beam rather than pixi: conda-forge has no Erlang for win-64 and the matrix must include Windows
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          otp-version: "29"
+          elixir-version: "1.20"
+      - run: mix local.hex --force && mix local.rebar --force
+      - name: Fetch dependencies (re-resolve when this runner's Hex edge lacks locked releases)
+        shell: bash
+        run: |
+          mix deps.get || {
+            echo "the lock names releases this runner's Hex index does not have yet; resolving from scratch"
+            rm -f mix.lock
+            mix deps.get
+          }
       - name: Cache the Dialyzer PLTs
-        if: runner.os == 'Linux'
         uses: actions/cache@v4
         with:
           path: _build/dev/*.plt
-          key: plt-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          key: plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
       - name: Dialyzer
-        if: runner.os == 'Linux'
         run: mix dialyzer
+
+  python-reference-client:
+    name: python reference client (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # pixi takes Python and every dependency from clients/python/pixi.toml; the lock file must match it
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          manifest-path: clients/python/pixi.toml
+          locked: true
+      - name: Hypothesis tests of the client modules
+        working-directory: clients/python
+        run: pixi run test
