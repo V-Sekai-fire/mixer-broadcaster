@@ -15,9 +15,12 @@ var priv := PackedByteArray()
 var pub := PackedByteArray()
 var admitted := false
 var replies: Array = []        # JSON replies read off the peer, oldest first
+var asking := false
 var more: Array = []           # later pieces of a long mesh reply
 var meshes := {}               # digest hex -> ArrayMesh, or false while loading / refused
 var nodes := {}                # gid -> MeshInstance3D
+var gone := {}                 # gid -> hlc of its remove
+var latest := {}               # gid -> its newest pose packet, kept until the mesh is here to draw it
 var last_log := {}             # gid -> msec of the last position line, so the console is not flooded
 var packets := 0
 var con: RichTextLabel
@@ -107,6 +110,16 @@ func _unb64u(s: String) -> PackedByteArray:
 # One question to the relay, as a datagram: the relay answers a datagram with datagrams (this peer reads no replies
 # from a stream).
 func _ask(obj: Dictionary) -> Dictionary:
+	# one question at a time: an answer has no id, so it belongs to the question asked last
+	while asking:
+		await get_tree().process_frame
+	asking = true
+	replies.clear()
+	var out := await _ask_now(obj)
+	asking = false
+	return out
+
+func _ask_now(obj: Dictionary) -> Dictionary:
 	peer.transfer_mode = MultiplayerPeer.TRANSFER_MODE_UNRELIABLE
 	peer.put_packet(JSON.stringify(obj).to_utf8_buffer())
 	var deadline := Time.get_ticks_msec() + 8000
@@ -176,6 +189,7 @@ func _process(delta: float) -> void:
 		if n.has_meta("tp"):
 			n.position = n.position.lerp(n.get_meta("tp"), w)
 			n.quaternion = n.quaternion.slerp(n.get_meta("tq"), w)
+			n.scale = n.scale.lerp(n.get_meta("ts"), w)
 	if status:
 		status.text = "room %s  admitted %s  packets %d  entities %d  meshes %d" % [room, admitted, packets, nodes.size(), meshes.values().filter(func(m): return m is Mesh).size()]
 	if peer == null:
@@ -197,21 +211,42 @@ func _process(delta: float) -> void:
 		elif b.size() > 0 and b[0] == 123:
 			var j: Variant = JSON.parse_string(b.get_string_from_utf8())
 			if typeof(j) == TYPE_DICTIONARY:
-				if j.get("t", "") == "mesh_more":
+				if j.has("patches") or j.get("t", "") == "snapshot":
+					pass  # the chart snapshot the relay sends to answer the keepalive: nobody asked for it
+				elif j.get("t", "") == "mesh_more":
 					more.append(j)
 				else:
 					replies.append(j)
+
+# A command packet: type at byte 52, bytes used at 54, the inline run from byte 5. ENTITY_REMOVE (211) names the entity.
+func _on_command(b: PackedByteArray) -> void:
+	if b.decode_u16(52) != 211 or b.decode_u16(54) < 5 or b.decode_u8(4) != 0:
+		return
+	var gid := b.decode_u32(5)
+	gone[gid] = b.decode_u64(40)
+	latest.erase(gid)
+	if nodes.has(gid):
+		nodes[gid].queue_free()
+		nodes.erase(gid)
+		last_log.erase(gid)
+		_log("entity %d removed" % gid, "yellow")
 
 func _on_pose(b: PackedByteArray) -> void:
 	packets += 1
 	var gid := b.decode_u32(0)
 	if b.decode_u8(51) == 128:
+		_on_command(b)
 		return
+	var hlc := b.decode_u64(40)
+	if gone.has(gid) and hlc <= int(gone[gid]):
+		return  # a pose older than the remove that named this entity
+	gone.erase(gid)
+	latest[gid] = b.duplicate()
 	var pos := Vector3(b.decode_s64(4), b.decode_s64(12), b.decode_s64(20)) / 1e6
 	var hex := b.slice(62, 94).hex_encode()
 	if hex.replace("0", "") != "" and not meshes.has(hex):
 		meshes[hex] = false
-		_load_mesh(hex)
+		_load_mesh_retry(hex)
 	if meshes.get(hex, false) is Mesh:
 		if not nodes.has(gid) or nodes[gid].get_meta("hex") != hex:
 			if nodes.has(gid):
@@ -236,6 +271,15 @@ func _on_pose(b: PackedByteArray) -> void:
 		if not n.has_meta("tq"):
 			n.quaternion = q
 		n.set_meta("tq", q)
+		# scale: three 10-bit log2 values (64 steps an octave, 512 is 1.0) in the u32 at byte 94, as the packet defines
+		var code := b.decode_u32(94)
+		var sc := Vector3(
+			pow(2.0, (float((code >> 0) & 1023) - 512.0) / 64.0),
+			pow(2.0, (float((code >> 10) & 1023) - 512.0) / 64.0),
+			pow(2.0, (float((code >> 20) & 1023) - 512.0) / 64.0))
+		if not n.has_meta("ts"):
+			n.scale = sc
+		n.set_meta("ts", sc)
 		if Time.get_ticks_msec() - int(last_log.get(gid, -10000)) > 700:
 			last_log[gid] = Time.get_ticks_msec()
 			_log("entity %d at (%.2f, %.2f, %.2f)" % [gid, pos.x, pos.y, pos.z])
@@ -263,14 +307,24 @@ func _array_after(text: String, key: String) -> String:
 				return text.substr(a + 1, j - a - 1)
 	return ""
 
-func _load_mesh(hex: String) -> void:
+func _load_mesh_retry(hex: String) -> void:
+	# a failed fetch (the store busy, a lost reply) is tried again: a static entity sends no pose to ask again with
+	for attempt in 5:
+		if await _load_mesh(hex):
+			return
+		meshes.erase(hex)
+		await get_tree().create_timer(2.0 + attempt).timeout
+		meshes[hex] = false
+	_log("gave up on mesh %s" % hex.left(8), "red")
+
+func _load_mesh(hex: String) -> bool:
 	while not admitted:
 		await get_tree().process_frame
 	_log("asking the relay for mesh %s" % hex.left(8))
 	var r := await _ask({"t": "mesh", "digest": hex})
 	if r.get("t", "") != "mesh":
 		_log("relay answered: %s" % JSON.stringify(r), "red")
-		return
+		return false
 	var urls: Array = r["chunks"].duplicate()
 	var want := int(r.get("n", urls.size()))
 	var give_up := Time.get_ticks_msec() + 6000
@@ -282,7 +336,7 @@ func _load_mesh(hex: String) -> void:
 		await get_tree().process_frame
 	if urls.size() < want:
 		_log("only %d of %d chunk urls arrived" % [urls.size(), want], "red")
-		return
+		return false
 	_log("relay answered: urls for the index and %d chunk(s), good for %ss" % [urls.size(), r["expires"]], "lightgreen")
 	var index: PackedByteArray = await _http(HTTPClient.METHOD_GET, r["index"])
 	var h := HashingContext.new()
@@ -290,7 +344,7 @@ func _load_mesh(hex: String) -> void:
 	h.update(index)
 	if h.finish().hex_encode() != hex:
 		_log("the index is not the one the digest names", "red")
-		return
+		return false
 	var all := PackedByteArray()
 	for url in urls:
 		var z: PackedByteArray = await _http(HTTPClient.METHOD_GET, url)
@@ -306,7 +360,7 @@ func _load_mesh(hex: String) -> void:
 		var vi := int(tri[k])
 		verts.append(Vector3(pts[vi * 3], pts[vi * 3 + 1], pts[vi * 3 + 2]))
 	var normals := PackedVector3Array()
-	for t in range(verts.size() / 3):
+	for t in range(int(verts.size()) / 3):
 		var nrm := (verts[t * 3 + 1] - verts[t * 3]).cross(verts[t * 3 + 2] - verts[t * 3]).normalized()
 		for _k in 3:
 			normals.append(nrm)
@@ -317,4 +371,9 @@ func _load_mesh(hex: String) -> void:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	meshes[hex] = mesh
+	# a late joiner is replayed each entity once, before its mesh is here: draw those now
+	for gid in latest.keys():
+		if (latest[gid] as PackedByteArray).slice(62, 94).hex_encode() == hex:
+			_on_pose(latest[gid])
 	_log("mesh %s: index hash ok, %d chunk(s), %d triangles" % [hex.left(8), urls.size(), tri.size() / 3], "lightgreen")
+	return true

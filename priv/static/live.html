@@ -91,6 +91,13 @@ async function login() {
 // ---- meshes, by digest ----
 const geoms = new Map(); // digest hex -> geometry, or null while loading, or false if refused
 let chain = Promise.resolve();
+const tries = new Map();
+// a failed fetch (the store busy, a lost reply) is tried again: a static entity sends no pose to ask again with
+function retry(dg) {
+  const n = (tries.get(dg) || 0) + 1; tries.set(dg, n);
+  if (n > 5) { log("gave up on mesh " + dg.slice(0, 8), "e"); return; }
+  setTimeout(() => { geoms.delete(dg); loadMesh(dg); }, 1500 + n * 1000);
+}
 function loadMesh(dg) {
   geoms.set(dg, null);
   chain = chain.then(async () => {
@@ -98,7 +105,7 @@ function loadMesh(dg) {
       log("asking the relay for mesh " + dg.slice(0, 8));
       const r = await question({ t: "mesh", digest: dg });
       log("relay answered: " + (r.t === "mesh" ? `urls for the index and ${r.chunks.length} chunk(s), good for ${r.expires}s` : JSON.stringify(r)), r.t === "mesh" ? "ok" : "e");
-      if (r.t !== "mesh") { S.denied++; S.reply = JSON.stringify(r) + " for " + dg.slice(0, 8); geoms.set(dg, false); return; }
+      if (r.t !== "mesh") { retry(dg); S.denied++; S.reply = JSON.stringify(r) + " for " + dg.slice(0, 8); geoms.set(dg, false); return; }
       const index = new Uint8Array(await (await fetch(r.index)).arrayBuffer());
       const sha = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", index)));
       if (sha !== dg) throw new Error("the index is not the one the digest names");
@@ -110,22 +117,39 @@ function loadMesh(dg) {
       const all = new Uint8Array(raw.reduce((n, p) => n + p.length, 0)); let o = 0;
       for (const p of raw) { all.set(p, o); o += p.length; }
       geoms.set(dg, geometryOf(new TextDecoder().decode(all)));
+      // a late joiner is replayed each entity once, before its mesh is here: draw those now
+      for (const p of latest.values()) if (hex(p.subarray(62, 94)) === dg) onPacket(p);
       log(`mesh ${dg.slice(0, 8)}: index hash ok, ${raw.length} chunk(s), ${all.length} bytes of USD`, "ok");
       S.meshes = [...geoms.values()].filter(Boolean).length;
-    } catch (e) { geoms.set(dg, false); S.error = String(e); log("mesh " + dg.slice(0, 8) + " failed: " + e, "e"); }
+    } catch (e) { geoms.set(dg, false); S.error = String(e); log("mesh " + dg.slice(0, 8) + " failed: " + e, "e"); retry(dg); }
     say();
   });
 }
 
 // ---- poses ----
 const lastPos = new Map(); const seen = new Set(); const nodes = new Map(); const mat = new THREE.MeshStandardMaterial({ color: 0xd8d8e0, roughness: 0.6, side: THREE.DoubleSide });
+// A command packet: type at byte 52, bytes used at 54, the inline run from byte 5. ENTITY_REMOVE (211) names the entity.
+const latest = new Map();   // gid -> newest pose packet, kept until the mesh is here to draw it
+const gone = new Map();   // gid -> hlc of the remove, so an older pose that arrives late does not bring it back
+function onCommand(v) {
+  const type = v.getUint16(52, true), used = v.getUint16(54, true);
+  if (type !== 211 || used < 5 || v.getUint8(4) !== 0) return;
+  const gid = v.getUint32(5, true), m = nodes.get(gid);
+  gone.set(gid, v.getBigUint64(40, true)); latest.delete(gid);
+  if (m) { scene.remove(m); nodes.delete(gid); lastPos.delete(gid); log(`entity ${gid} removed`, "w"); }
+  S.entities = nodes.size;
+}
 function onPacket(b) {
   if (b.length !== 100) return;
   const v = new DataView(b.buffer, b.byteOffset, 100);
   S.packets++;
   const gid = v.getUint32(0, true), cls = v.getUint8(51);
   if (!seen.has(gid)) { seen.add(gid); log(`entity ${gid} first seen (class ${cls})`); }
-  if (cls === 128) return; // a command packet
+  if (cls === 128) { onCommand(v); return; }
+  const hlc = v.getBigUint64(40, true);
+  if (gone.has(gid) && hlc <= gone.get(gid)) return;   // a pose older than the remove that named this entity
+  if (gone.has(gid)) gone.delete(gid);                  // a newer pose: the entity is back
+  latest.set(gid, new Uint8Array(b));
   const x = Number(v.getBigInt64(4, true)) / 1e6, y = Number(v.getBigInt64(12, true)) / 1e6, z = Number(v.getBigInt64(20, true)) / 1e6;
   const dg = hex(b.subarray(62, 94));
   let m = nodes.get(gid);

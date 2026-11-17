@@ -89,6 +89,79 @@ defmodule MixerBroadcaster.CommandTest do
     end
   end
 
+  describe "mode 2: data named by its desync index (over 16 MiB, never read by the relay)" do
+    test "golden: the packet holds the digest and the sender's key; the store and fetch are never called" do
+      digest = :crypto.hash(:sha256, "an index")
+      data = Command.index(digest, 0xDEADBEEF)
+      no = fn _ -> flunk("the relay must not touch the store or fetch") end
+      assert {:ok, pkt} = Command.pack(77, data, 9, 1234, no)
+      <<key::little-32, run::binary-size(36), _hlc::little-64, _::binary>> = pkt
+      assert key == 0xDEADBEEF
+      assert <<2, ^digest::binary-size(32), 0, 0, 0>> = run
+
+      assert {:ok, %{type: 77, owner: 9, hlc: 1234, key: 0xDEADBEEF, data: ^data}} =
+               Command.unpack(pkt, no)
+
+      assert Command.index?(data)
+    end
+
+    test "golden: the same packet as the add-on writes it (mode 2, used 33, key from the sender)" do
+      # built by mixer/broadcaster/entity.py pack_command for type 77, owner 9, hlc 1234, digest = 32 bytes of 0x11
+      key = 0x01020304
+
+      py =
+        <<key::little-32, 2, :binary.copy(<<0x11>>, 32)::binary, 0, 0, 0, 1234::little-64,
+          9::little-24, 128, 77::little-16, 33::little-16, 0::unit(8)-size(42), 0, 0>>
+
+      assert byte_size(py) == 100
+      assert {:ok, %{data: d, key: ^key}} = Command.unpack(py, fn _ -> {:error, :none} end)
+      assert d == Command.index(:binary.copy(<<0x11>>, 32), key)
+      assert {:ok, ^py} = Command.pack(77, d, 9, 1234, fn _ -> flunk("no store") end)
+    end
+
+    property "any digest, key, owner and clock survive the relay (unpack, then pack)" do
+      check all(
+              digest <- StreamData.binary(length: 32),
+              key <- StreamData.integer(0..0xFFFFFFFF),
+              type <- StreamData.integer(1..0xFFFF),
+              owner <- StreamData.integer(0..0xFFFFFF),
+              hlc <- StreamData.integer(0..(Bitwise.bsl(1, 64) - 1)),
+              type != 210
+            ) do
+        no = fn _ -> flunk("no store") end
+        {:ok, pkt} = Command.pack(type, Command.index(digest, key), owner, hlc, no)
+        assert {:ok, %{data: data, key: ^key}} = Command.unpack(pkt, no)
+        assert data == Command.index(digest, key)
+        assert {:ok, ^pkt} = Command.pack(type, data, owner, hlc, no)
+      end
+    end
+
+    test "control: a mode 2 packet with the wrong used length, a dirty tail or a short body is refused" do
+      digest = :binary.copy(<<7>>, 32)
+      no = fn _ -> {:error, :none} end
+      {:ok, pkt} = Command.pack(77, Command.index(digest, 5), 1, 0, no)
+      <<head::binary-size(52), type::little-16, used::little-16, rest::binary>> = pkt
+      assert {:ok, _} = Command.unpack(pkt, no)
+
+      assert {:error, _} =
+               Command.unpack(<<head::binary, type::little-16, 36::little-16, rest::binary>>, no)
+
+      assert {:error, _} =
+               Command.unpack(<<head::binary, type::little-16, 32::little-16, rest::binary>>, no)
+
+      assert used == 33
+      <<pre::binary-size(60), _, post::binary>> = pkt
+      assert {:error, :dirty_tail} = Command.unpack(<<pre::binary, 1, post::binary>>, no)
+    end
+
+    test "control: ordinary data that merely starts like the marker but is another length is inline data, not an index" do
+      d = "mixer-index:" <> String.duplicate("x", 10)
+      refute Command.index?(d)
+      assert {:ok, pkt} = Command.pack(77, d, 1, 0, fn _ -> flunk("inline") end)
+      assert {:ok, %{data: ^d}} = Command.unpack(pkt, fn _ -> {:error, :none} end)
+    end
+  end
+
   property "control: any single flipped bit either changes the command or is refused, never returns the same one" do
     {:ok, pkt} = Command.pack(101, "hello", 5, 9, fn _ -> flunk("inline") end)
     {:ok, base} = Command.unpack(pkt, fn _ -> {:error, :none} end)
