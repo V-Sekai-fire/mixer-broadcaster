@@ -44,3 +44,81 @@ path = "vendor/transport-zone-relay/thirdparty/muscle-drive/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 K. S. Ernest (iFire) Lee"
 SPDX-License-Identifier = "MIT"
+
+# clients/python: files that carry Ubisoft's MIT notice (the reference client descends from it); the changes are ours.
+[[annotations]]
+path = [
+  "clients/python/mixer/broadcaster/LICENSE",
+  "clients/python/mixer/broadcaster/cli_utils.py",
+  "clients/python/mixer/broadcaster/client.py",
+  "clients/python/mixer/broadcaster/common.py",
+  "clients/python/mixer/broadcaster/room_bake.py",
+  "clients/python/mixer/broadcaster/socket.py",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = ["2020 Ubisoft", "2026-present K. S. Ernest (iFire) Lee"]
+SPDX-License-Identifier = "MIT"
+
+# clients/python: files first written here; MIT, as their own notices say.
+[[annotations]]
+path = [
+  "clients/python/.hypothesis/.gitignore",
+  "clients/python/.hypothesis/constants/c712badfc9acd21d",
+  "clients/python/mixer/__init__.py",
+  "clients/python/mixer/broadcaster/entity.py",
+  "clients/python/mixer/broadcaster/geo_publish.py",
+  "clients/python/mixer/broadcaster/mesh_split.py",
+  "clients/python/mixer/broadcaster/meshlets.py",
+  "clients/python/mixer/broadcaster/relay.py",
+  "clients/python/mixer/broadcaster/relay_transport.py",
+  "clients/python/mixer/broadcaster/s3.py",
+  "clients/python/mixer/broadcaster/texture.py",
+  "clients/python/mixer/broadcaster/wt.py",
+  "clients/python/tests/__init__.py",
+  "clients/python/tests/godot/explode_shells.gd",
+  "clients/python/tests/hypo/__init__.py",
+  "clients/python/tests/hypo/test_command_index.py",
+  "clients/python/tests/hypo/test_explode_rule.py",
+  "clients/python/tests/hypo/test_mesh_split.py",
+  "clients/python/tests/hypo/test_publish_cache.py",
+  "clients/python/tests/hypo/test_relay_keepalive.py",
+  "clients/python/tools/build_meshopt.sh",
+  "clients/python/tools/command_golden.py",
+  "clients/python/tools/hub_bench.py",
+  "clients/python/tools/hub_geometry_stream.py",
+  "clients/python/tools/hub_probe.py",
+  "clients/python/tools/mm_to_packets.py",
+  "clients/python/tools/relay_client_check.py",
+  "clients/python/tools/relay_keep_open_check.py",
+  "clients/python/tools/relay_listen.py",
+  "clients/python/tools/relay_session_check.py",
+  "clients/python/tools/relay_who.py",
+  "clients/python/tools/relay_zero_trust_probe.py",
+  "clients/python/tools/rfsq_fit.py",
+  "clients/python/tools/swing_twist.py",
+  "clients/python/tools/usda_to_real.py",
+  "clients/python/tools/wire_measure.py",
+  "clients/python/tools/wire_predict.py",
+  "clients/python/tools/xr_grid_entity_packet.py",
+  "clients/python/tools/zt.py",
+  "clients/python/tools/zt_listen.py",
+  "clients/python/tools/zt_stack.py",
+  "clients/python/tools/zt_two_clients_check.py",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026-present K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT"
+
+# The Godot viewer is written here, by the same author.
+[[annotations]]
+path = "clients/godot/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT"
+
+# The pixi lock file is generated from clients/python/pixi.toml.
+[[annotations]]
+path = ["clients/python/pixi.lock", "clients/python/pixi.toml"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026-present K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT"

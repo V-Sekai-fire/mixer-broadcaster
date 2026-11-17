@@ -26,3 +26,6 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 mixer_broadcaster-*.tar
 
+__pycache__/
+*.pyc
+.pixi/

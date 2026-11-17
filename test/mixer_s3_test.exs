@@ -31,8 +31,9 @@ defmodule MixerBroadcaster.Mixer.S3Test do
   property "the signature changes with the method, host, path, body, key and time" do
     check all(
             body <- binary(),
-            other <- binary(),
-            body != other
+            suffix <- binary(min_length: 1),
+            # a longer body is always another body; filtering `body != other` fails on runs full of empty binaries
+            other = body <> suffix
           ) do
       base = auth(S3.sign("PUT", "h:1", "/b/k", body, @keys, @now))
       assert base == auth(S3.sign("PUT", "h:1", "/b/k", body, @keys, @now))

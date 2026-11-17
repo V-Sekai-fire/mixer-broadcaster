@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.EntityRemoveTest do
   @moduledoc """
   GOLDEN: a player creates an entity (a pose), changes it (a newer pose) and removes it (an ENTITY_REMOVE command with

@@ -18,6 +18,8 @@ info:
   description: >-
     Rooms of 100-byte entity packets and the relay's command protocol, over HTTP/3 WebTransport. Zero trust: a session
     is admitted with a token, the player's key and a signature over a nonce from the relay before it is put in a room.
+    The wire has one coordinate frame: right-handed, X right, Y up, -Z forward, metres. Every position, rotation and mesh
+    is in it; a client in another frame converts before it sends.
   license:
     name: MIT
     url: https://opensource.org/license/mit
