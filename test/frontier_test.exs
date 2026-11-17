@@ -67,10 +67,22 @@ defmodule MixerBroadcaster.FrontierTest do
     ledger_put(level, elem(result, 0), elem(result, 1))
   end
 
-  @spec run_level(String.t(), pos_integer(), (non_neg_integer() -> term())) :: :ok
-  defp run_level(level, n, fun) do
-    for i <- 0..(n - 1), do: attempt(level, fn -> fun.(i) end)
-    :ok
+  # Every problem of every level runs at once, up to FRONTIER_JOBS at a time (default twice the schedulers). A problem
+  # makes its own room, key and sessions, so none waits on another; most of the wall clock is the quiet gaps a client
+  # waits to be sure the relay has said everything, and those overlap. FRONTIER_JOBS=1 runs them one by one.
+  @spec run_levels([{String.t(), pos_integer(), (non_neg_integer() -> term())}]) :: :ok
+  defp run_levels(levels) do
+    problems = for {level, n, fun} <- levels, i <- 0..(n - 1), do: {level, i, fun}
+    configured = String.to_integer(System.get_env("FRONTIER_JOBS") || "0")
+    jobs = if configured > 0, do: configured, else: System.schedulers_online() * 2
+
+    problems
+    |> Task.async_stream(fn {level, i, fun} -> attempt(level, fn -> fun.(i) end) end,
+      max_concurrency: jobs,
+      timeout: 300_000,
+      ordered: false
+    )
+    |> Stream.run()
   end
 
   # ---------------------------------------------------------------- the document
@@ -378,12 +390,6 @@ defmodule MixerBroadcaster.FrontierTest do
 
   @spec level_mesh(doc(), relay(), non_neg_integer()) :: term()
   defp level_mesh(doc, relay, i) do
-    stub(MixerBroadcaster.BlobMock, :object, fn _ -> {:ok, @cube} end)
-
-    stub(MixerBroadcaster.BlobMock, :presign_get, fn key, ttl ->
-      {:ok, "https://s3.test/#{key}?ttl=#{ttl}"}
-    end)
-
     room = room_name(i)
     {poster, _} = admitted_in_room(doc, relay, room, ["read"])
     :ok = Client.send_unreliable(poster, pose_bytes(7, @cube_digest, 4))
@@ -995,21 +1001,32 @@ defmodule MixerBroadcaster.FrontierTest do
     {:ok, web} = Bandit.start_link(plug: Web, port: 0, startup_log: false)
     {:ok, {_, web_port}} = ThousandIsland.listener_info(web)
 
-    run_level("1 room door", @n, &level_room_door(doc, relay, &1))
-    run_level("2 refusals", @n, &level_refusals(doc, relay, &1))
-    run_level("3 chart", @n, &level_chart(doc, relay, &1))
-    run_level("4 poses", @n, &level_pose(doc, relay, &1))
-    run_level("5 meshes", @n, &level_mesh(doc, relay, &1))
-    run_level("6 commands", @n, &level_commands(doc, relay, &1))
-    run_level("7 demo http", @n, &level_http(doc, web_port, &1))
-    run_level("8 configuration", 5, &level_config(doc, relay, &1))
-    run_level("9 late joiners, removal, bulk", @n, &level_late(doc, relay, &1))
-    run_level("10 departures and the command door", @n, &level_departures(doc, relay, &1))
-    run_level("11 the client library", 4, &level_client(doc, relay, &1))
+    # set once, here: Mox in global mode takes stubs only from the process that set it
+    stub(MixerBroadcaster.BlobMock, :object, fn _ -> {:ok, @cube} end)
 
-    for {issue, n} <- @issue_levels do
-      run_level("issue ##{issue}", n, &level_issue(issue, doc, relay, &1))
-    end
+    stub(MixerBroadcaster.BlobMock, :presign_get, fn key, ttl ->
+      {:ok, "https://s3.test/#{key}?ttl=#{ttl}"}
+    end)
+
+    run_levels(
+      [
+        {"1 room door", @n, &level_room_door(doc, relay, &1)},
+        {"2 refusals", @n, &level_refusals(doc, relay, &1)},
+        {"3 chart", @n, &level_chart(doc, relay, &1)},
+        {"4 poses", @n, &level_pose(doc, relay, &1)},
+        {"5 meshes", @n, &level_mesh(doc, relay, &1)},
+        {"6 commands", @n, &level_commands(doc, relay, &1)},
+        {"7 demo http", @n, &level_http(doc, web_port, &1)},
+        {"8 configuration", 5, &level_config(doc, relay, &1)},
+        {"9 late joiners, removal, bulk", @n, &level_late(doc, relay, &1)},
+        {"10 departures and the command door", @n, &level_departures(doc, relay, &1)},
+        {"11 the client library", 4, &level_client(doc, relay, &1)}
+      ] ++
+        for(
+          {issue, n} <- @issue_levels,
+          do: {"issue ##{issue}", n, &level_issue(issue, doc, relay, &1)}
+        )
+    )
 
     for {issue, why} <- @unmeasured_issues,
         do: IO.puts("issue ##{issue} unmeasured: #{why}")
