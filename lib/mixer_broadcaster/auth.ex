@@ -1,4 +1,7 @@
-# MIT.
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Auth do
   @moduledoc """
   The relay's door. A player has a token (see `MixerBroadcaster.Token`) and a P-256 key. The token names the

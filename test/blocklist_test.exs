@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.BlocklistTest do
   @moduledoc """
   House rule: no try, rescue, catch or throw in lib/. Expected failures are {:ok, v} / {:error, r}.

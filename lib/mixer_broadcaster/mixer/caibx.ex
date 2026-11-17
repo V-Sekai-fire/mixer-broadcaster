@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Caibx do
   @moduledoc """
   Reads the chunk ids out of a desync index (`.caibx`), so the relay can presign each chunk of a mesh for a client.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Loss do
   @moduledoc """
   A wifi-like lossy channel for datagrams: the Gilbert-Elliott model, two states with their own loss rates and a chance of

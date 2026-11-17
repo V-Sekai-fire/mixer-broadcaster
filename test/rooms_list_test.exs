@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.RoomsListTest do
   @moduledoc """
   GOLDEN: the list names every room with a player or a remembered entity, with both counts.

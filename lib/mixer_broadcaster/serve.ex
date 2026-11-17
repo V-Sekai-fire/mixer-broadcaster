@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Serve do
   @moduledoc """
   The deployed relay's entry point (`MB_SERVE=1`). It is closed by construction:

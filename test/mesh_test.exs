@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.MeshTest do
   @moduledoc """
   GOLDEN: the desync index of a real mesh parses to its chunk id; the presigned query is pinned (the same algorithm,

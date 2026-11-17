@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.LossTest do
   @moduledoc """
   GOLDEN: no channel passes everything; the presets hit their long-run loss rate; a number is independent loss.

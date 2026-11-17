@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.TransportPropertyTest do
   @moduledoc """
   Property tests (StreamData) against a real listener on loopback and a real QUIC client.

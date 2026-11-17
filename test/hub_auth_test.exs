@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.HubAuthTest do
   @moduledoc """
   GOLDEN: two admitted players in one room see each other; an outsider in another room sees nothing.

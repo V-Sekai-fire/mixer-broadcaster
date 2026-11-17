@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Server do
   @moduledoc """
   The broadcaster's one listener: HTTP/3 WebTransport (QUIC), nothing else.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Router do
   @moduledoc """
   The listener has one handler, so this one picks by path: `/mixer` is the Mixer protocol (`Mixer.Session`), anything

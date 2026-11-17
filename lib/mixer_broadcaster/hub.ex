@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Hub do
   @moduledoc """
   Room hub on top of the transport. A client connects to `/room/<name>`.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.CommandTest do
   @moduledoc """
   GOLDEN: the 96 command packets the add-on's Python codec writes decode here to the fields it started from and encode

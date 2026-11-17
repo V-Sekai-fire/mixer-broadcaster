@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.AuthSessionTest do
   @moduledoc """
   GOLDEN: a player with a token for two rooms is admitted to a Mixer session and may enter those rooms and no other.

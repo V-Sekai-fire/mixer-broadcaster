@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Web do
   @moduledoc "Serves the three.js client and the hash of the demo certificate (a browser needs it for a self-signed WebTransport server)."
   use Plug.Router

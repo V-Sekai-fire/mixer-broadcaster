@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Rooms do
   @moduledoc "Room chart state held on the server, so a client that joins late gets the current chart."
   use Agent

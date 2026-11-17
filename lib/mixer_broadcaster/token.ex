@@ -1,4 +1,7 @@
-# MIT.
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Token do
   @moduledoc """
   Zero-trust player tokens: a macaroon chain whose links are COSE_Mac0 messages (RFC 9052 section 6.3) in

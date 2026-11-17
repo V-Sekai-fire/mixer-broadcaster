@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Command do
   @moduledoc """
   A command as one 100-byte packet of class `command` (128), as `mixer/broadcaster/entity.py` writes it and as

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.BridgeTest do
   @moduledoc """
   GOLDEN: a pose from a Mixer client in room R reaches the hub's room R (stored for late joiners, relayed to its sessions).

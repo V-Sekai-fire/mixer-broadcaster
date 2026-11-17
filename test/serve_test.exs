@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.ServeTest do
   @moduledoc """
   CONTROL: the deployed relay cannot start open. A missing, short, long or non-hex root key is refused and nothing listens.

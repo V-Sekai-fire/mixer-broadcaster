@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Server do
   @moduledoc """
   The one process that owns the Mixer rooms (`Mixer.Core`). A session registers, sends its commands here and receives
