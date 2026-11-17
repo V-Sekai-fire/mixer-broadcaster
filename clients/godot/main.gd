@@ -1,8 +1,10 @@
+@tool
 extends Node
 # MIT. A viewer of the closed relay in Godot. It signs in with the guest ELF (mixer_auth.elf, the same one the other
 # clients run), asks the minter for a token that carries the read right, joins the room over WebTransport, asks the
 # relay for each mesh by digest, fetches the presigned index and chunks, and draws the mesh at each pose. A console
-# at the bottom of the window logs every step and every relay reply.
+# at the bottom of the window logs every step and every relay reply. It is a @tool script, so opening main.tscn in the
+# editor streams into the editor's own 3D view too (the nodes it adds have no owner, so nothing is saved to the scene).
 #   env: MB_PORT (relay UDP port), MB_ROOM, MB_MINTER (http://127.0.0.1:4467), AUTH_ELF (path to mixer_auth.elf)
 
 var peer: WebTransportPeer
@@ -16,7 +18,7 @@ var replies: Array = []        # JSON replies read off the peer, oldest first
 var more: Array = []           # later pieces of a long mesh reply
 var meshes := {}               # digest hex -> ArrayMesh, or false while loading / refused
 var nodes := {}                # gid -> MeshInstance3D
-var last_pos := {}
+var last_log := {}             # gid -> msec of the last position line, so the console is not flooded
 var packets := 0
 var con: RichTextLabel
 var status: Label
@@ -32,7 +34,8 @@ func _log(msg: String, color := "") -> void:
 		con.append_text(("[color=%s]%s[/color]\n" % [color, line]) if color != "" else line + "\n")
 
 func _ready() -> void:
-	DisplayServer.window_move_to_foreground()
+	if not Engine.is_editor_hint():
+		DisplayServer.window_move_to_foreground()
 	room = OS.get_environment("MB_ROOM") if OS.get_environment("MB_ROOM") != "" else room
 	minter = OS.get_environment("MB_MINTER") if OS.get_environment("MB_MINTER") != "" else minter
 	_build_scene()
@@ -50,7 +53,7 @@ func _build_scene() -> void:
 	sun.rotation_degrees = Vector3(-50, 30, 0)
 	add_child(sun)
 	var cam := Camera3D.new()
-	cam.position = Vector3(5, 4, 8)
+	cam.position = Vector3(4, 3, 6.5)
 	add_child(cam)
 	cam.look_at(Vector3.ZERO)
 	var floor_mesh := MeshInstance3D.new()
@@ -166,7 +169,13 @@ func _run() -> void:
 	admitted = true
 	_log("admitted: relay said ready (signed by the guest ELF)", "lightgreen")
 
-func _process(_d: float) -> void:
+func _process(delta: float) -> void:
+	# updates arrive about 10 times a second; ease each object toward its latest pose so the motion is smooth
+	var w := 1.0 - exp(-18.0 * delta)
+	for n in nodes.values():
+		if n.has_meta("tp"):
+			n.position = n.position.lerp(n.get_meta("tp"), w)
+			n.quaternion = n.quaternion.slerp(n.get_meta("tq"), w)
 	if status:
 		status.text = "room %s  admitted %s  packets %d  entities %d  meshes %d" % [room, admitted, packets, nodes.size(), meshes.values().filter(func(m): return m is Mesh).size()]
 	if peer == null:
@@ -216,15 +225,19 @@ func _on_pose(b: PackedByteArray) -> void:
 			_log("entity %d first seen" % gid)
 	if nodes.has(gid):
 		var n: MeshInstance3D = nodes[gid]
-		n.position = pos
+		if not n.has_meta("tp"):
+			n.position = pos
+		n.set_meta("tp", pos)
 		var sx := float(b.decode_s16(56)) * PI / 32767.0
 		var sz := float(b.decode_s16(58)) * PI / 32767.0
 		var ang := sqrt(sx * sx + sz * sz)
 		var swing := Quaternion(Vector3(sx / ang, 0, sz / ang), ang) if ang > 1e-9 else Quaternion.IDENTITY
-		n.basis = Basis(swing * Quaternion(Vector3.UP, float(b.decode_s16(60)) * TAU / 65536.0))
-		var lp: Vector3 = last_pos.get(gid, Vector3(1e9, 0, 0))
-		if lp.distance_to(pos) > 0.01:
-			last_pos[gid] = pos
+		var q := swing * Quaternion(Vector3.UP, float(b.decode_s16(60)) * TAU / 65536.0)
+		if not n.has_meta("tq"):
+			n.quaternion = q
+		n.set_meta("tq", q)
+		if Time.get_ticks_msec() - int(last_log.get(gid, -10000)) > 700:
+			last_log[gid] = Time.get_ticks_msec()
 			_log("entity %d at (%.2f, %.2f, %.2f)" % [gid, pos.x, pos.y, pos.z])
 
 func _nums(text: String) -> PackedFloat64Array:

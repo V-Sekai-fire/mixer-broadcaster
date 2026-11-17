@@ -16,5 +16,8 @@ Godot's `WebTransportPeer` reads no reply from a stream, so every question goes 
 a datagram with datagrams (a long mesh reply arrives as `mesh` then `mesh_more` pieces). It sends a small datagram every
 5 s, because QUIC drops a quiet session.
 
+The script is `@tool`: open `main.tscn` in the editor and the editor's 3D view streams too (nothing is saved to the
+scene). Poses arrive about 10 times a second, so each object eases toward its latest pose.
+
 A template build has no `--main-pack`: export the pack with the editor (`--export-pack`), then name it after the binary
 (`viewer` and `viewer.pck` in one folder).
