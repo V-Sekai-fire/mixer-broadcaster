@@ -36,7 +36,7 @@ defmodule MixerBroadcaster.CommandTest do
     |> String.split("\n", trim: true)
     |> tl()
     |> Enum.map(fn line ->
-      [t, o, h, d, p, b] = String.split(line, ",")
+      [t, o, h, d, p, b] = line |> String.trim() |> String.split(",")
 
       %{
         type: String.to_integer(t),
