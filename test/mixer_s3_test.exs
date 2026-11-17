@@ -4,7 +4,7 @@
 
 defmodule MixerBroadcaster.Mixer.S3Test do
   @moduledoc """
-  GOLDEN: the signature equals the one the Python add-on makes for the same request (pinned values, both accepted by
+  GOLDEN: the signature equals the one the add-on makes for the same request (pinned values, both accepted by
   SeaweedFS). INVARIANT: the signature depends on every part of the request. CONTROL: no keys -> an error, never a raise.
   """
   use ExUnit.Case, async: true
@@ -17,7 +17,7 @@ defmodule MixerBroadcaster.Mixer.S3Test do
 
   defp auth(hs), do: hs |> Enum.find(fn {n, _} -> n == "authorization" end) |> elem(1)
 
-  test "golden: matches the Python signer for the same request" do
+  test "golden: matches the add-on's signer for the same request" do
     hs = S3.sign("PUT", "127.0.0.1:8333", "/mixer/index/ab.caibx", "hello", @keys, @now)
     assert {"x-amz-date", "20261116T120000Z"} in hs
 

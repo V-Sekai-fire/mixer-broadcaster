@@ -32,6 +32,10 @@ defmodule MixerBroadcaster.MixProject do
       # Property-based testing (Elixir's counterpart of Hypothesis)
       {:cbor, "~> 1.0"},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      # The AsyncAPI document in spec/ is held to the real Hub by test/asyncapi_test.exs
+      {:yaml_elixir, "~> 2.11", only: :test},
+      {:ex_json_schema, "~> 0.10", only: :test},
+      {:mox, "~> 1.2", only: :test},
       # Static analysis: `mix dialyzer`
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
