@@ -46,7 +46,7 @@ defmodule MixerBroadcaster.Client do
   def send_unreliable(session, packet) when is_binary(packet),
     do: :webtransport.send_datagram(session, packet)
 
-  @doc "Collect the reply on `stream` until `expected` bytes arrived or `timeout` ms passed."
+  @doc "Collect the reply on `stream` until `expected` bytes arrived, the relay finished the stream, or `timeout` ms passed."
   @spec recv_reliable(session(), stream(), non_neg_integer(), timeout()) ::
           {:ok, binary()} | {:error, {:timeout, non_neg_integer()}}
   def recv_reliable(session, stream, expected, timeout \\ 5_000),
@@ -59,6 +59,10 @@ defmodule MixerBroadcaster.Client do
     receive do
       {:webtransport, ^session, {:stream, ^stream, :bidi, data}} ->
         collect(session, stream, expected, acc <> data, timeout)
+
+      # a reply sent with FIN (the relay's JSON replies) arrives as its own event, carrying the last bytes
+      {:webtransport, ^session, {:stream_fin, ^stream, :bidi, data}} ->
+        collect(session, stream, expected, acc <> data, 0)
     after
       timeout -> {:error, {:timeout, byte_size(acc)}}
     end

@@ -194,6 +194,40 @@ defmodule MixerBroadcaster.AsyncApiTest do
            end)
   end
 
+  test "invariant: a command is told apart by its type in its headers, exactly one message per channel and number",
+       %{doc: doc} do
+    for {channel, from} <- [{"commandsIn", "client"}, {"commandsOut", "server"}] do
+      names =
+        for {_, %{"$ref" => ref}} <- doc["channels"][channel]["messages"],
+            name = ref |> String.split("/") |> List.last(),
+            message(doc, name)["headers"],
+            do: name
+
+      # each header schema is resolved once; resolving it per number is what made this test slow
+      schemas = Map.new(names, &{&1, resolve(doc, "#/components/messages/#{&1}/headers")})
+      fits? = fn name, ty -> ExJsonSchema.Validator.valid?(schemas[name], %{"type" => ty}) end
+
+      # the channel holds only the messages of its direction, and each one's header agrees with its x-wire
+      for name <- names do
+        w = message(doc, name)["x-wire"]
+        assert w["from"] == from, "#{name} is on #{channel} but is sent by the #{w["from"]}"
+
+        if w["type"] do
+          assert fits?.(name, w["type"])
+          refute fits?.(name, w["type"] + 1)
+        end
+      end
+
+      listed = for {_, w} <- wire_messages(doc, from), ty = w["type"], do: ty
+
+      for n <- 1..1200 do
+        hits = for m <- names, fits?.(m, n), do: m
+        expected = if from == "client" or n in listed or n > 100, do: 1, else: 0
+        assert length(hits) == expected, "#{channel}: type #{n} fits #{inspect(hits)}"
+      end
+    end
+  end
+
   test "invariant: every environment variable lib/ reads is in the document and the other way round",
        %{doc: doc} do
     listed = doc["servers"]["relay"]["x-environment"] |> Map.keys() |> Enum.sort()

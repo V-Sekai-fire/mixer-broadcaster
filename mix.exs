@@ -12,12 +12,14 @@ defmodule MixerBroadcaster.MixProject do
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      aliases: [demo: &demo/1],
+      aliases: [demo: &demo/1, frontier: ["test test/frontier_test.exs"]],
       dialyzer: [flags: [:error_handling, :extra_return, :missing_return]],
       description: "Broadcaster for Mixer: HTTP/3 WebTransport is the only network protocol.",
       licenses: ["MIT"]
     ]
   end
+
+  def cli, do: [preferred_envs: [frontier: :test]]
 
   def application do
     [extra_applications: [:logger, :ssl, :public_key, :inets], mod: {MixerBroadcaster.Application, []}]
