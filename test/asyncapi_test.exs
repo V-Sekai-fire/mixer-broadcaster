@@ -208,6 +208,149 @@ defmodule MixerBroadcaster.AsyncApiTest do
     for key <- Map.keys(doc["servers"]), do: assert(key =~ ~r/^[A-Za-z0-9_\-]+$/)
   end
 
+  # the fixed fields of each object of the AsyncAPI 3.1.0 text; anything else must be an `x-` extension
+  @fields %{
+    root: ~w(asyncapi id info servers defaultContentType channels operations components),
+    info: ~w(title version description termsOfService contact license tags externalDocs),
+    license: ~w(name url),
+    server:
+      ~w(host protocol protocolVersion pathname description title summary variables security tags externalDocs bindings),
+    channel:
+      ~w(address messages title summary description servers parameters tags externalDocs bindings),
+    parameter: ~w(enum default description examples location),
+    operation:
+      ~w(action channel title summary description security tags externalDocs bindings traits messages reply),
+    reply: ~w(address channel messages),
+    message:
+      ~w(headers payload correlationId contentType name title summary description tags externalDocs bindings examples traits),
+    example: ~w(headers payload name summary),
+    components:
+      ~w(schemas servers channels operations messages securitySchemes serverVariables parameters correlationIds replies replyAddresses externalDocs tags operationTraits messageTraits serverBindings channelBindings operationBindings messageBindings),
+    bindings:
+      ~w(http ws kafka anypointmq amqp amqp1 mqtt mqtt5 nats jms sns solace sqs stomp redis mercure ibmmq googlepubsub pulsar ros2),
+    http_operation: ~w(method query bindingVersion),
+    http_message: ~w(headers statusCode bindingVersion)
+  }
+
+  defp only_defined(where, map, kind) do
+    extra =
+      for k <- Map.keys(map),
+          k not in @fields[kind],
+          not Regex.match?(~r/^x-[\w\d\.\x2d_]+$/, k),
+          do: k
+
+    assert extra == [], "#{where}: fields the specification does not define: #{inspect(extra)}"
+  end
+
+  test "conformance: every object has only the fields the specification defines (or x- extensions), and its required ones",
+       %{doc: doc} do
+    only_defined("root", doc, :root)
+    for k <- ~w(asyncapi info), do: assert(Map.has_key?(doc, k))
+    only_defined("info", doc["info"], :info)
+    for k <- ~w(title version), do: assert(is_binary(doc["info"][k]), "info.#{k}")
+    only_defined("license", doc["info"]["license"], :license)
+    assert is_binary(doc["info"]["license"]["name"])
+    only_defined("components", doc["components"], :components)
+    assert doc["defaultContentType"] =~ ~r{^[\w.+-]+/[\w.+-]+$}
+
+    for {id, s} <- Map.merge(doc["servers"], doc["components"]["servers"] || %{}) do
+      only_defined("server #{id}", s, :server)
+      assert is_binary(s["host"]) and is_binary(s["protocol"]), "server #{id} host and protocol"
+      refute s["host"] =~ "://", "server #{id}: host is a host name, not a URL"
+      only_defined("server #{id} bindings", s["bindings"] || %{}, :bindings)
+      # the HTTP server binding is reserved and holds nothing
+      assert (s["bindings"] || %{})["http"] in [nil, %{}]
+    end
+
+    for {id, ch} <- Map.merge(doc["channels"], doc["components"]["channels"] || %{}) do
+      only_defined("channel #{id}", ch, :channel)
+      only_defined("channel #{id} bindings", ch["bindings"] || %{}, :bindings)
+
+      for {pid, param} <- ch["parameters"] || %{},
+          do: only_defined("parameter #{id}.#{pid}", param, :parameter)
+
+      refute (ch["address"] || "") =~ ~r/[?#]/,
+             "channel #{id}: no query or fragment in an address"
+
+      assert (ch["bindings"] || %{})["http"] in [nil, %{}]
+    end
+
+    for {id, op} <- all_operations(doc) do
+      only_defined("operation #{id}", op, :operation)
+      assert op["action"] in ["send", "receive"], "operation #{id} action"
+
+      assert is_map(op["channel"]) and Map.keys(op["channel"]) == ["$ref"],
+             "operation #{id} channel is a reference"
+
+      only_defined("operation #{id} bindings", op["bindings"] || %{}, :bindings)
+
+      if http = (op["bindings"] || %{})["http"],
+        do: only_defined("operation #{id} http", http, :http_operation)
+
+      if reply = op["reply"], do: only_defined("operation #{id} reply", reply, :reply)
+    end
+
+    for {id, m} <- doc["components"]["messages"] do
+      only_defined("message #{id}", m, :message)
+      only_defined("message #{id} bindings", m["bindings"] || %{}, :bindings)
+
+      if http = (m["bindings"] || %{})["http"],
+        do: only_defined("message #{id} http", http, :http_message)
+
+      if ct = m["contentType"],
+        do:
+          assert(
+            ct =~ ~r{^[\w.+-]+/[\w.+-]+$},
+            "message #{id}: contentType is a specific media type"
+          )
+
+      for ex <- m["examples"] || [] do
+        only_defined("message #{id} example", ex, :example)
+        assert Map.has_key?(ex, "headers") or Map.has_key?(ex, "payload")
+      end
+    end
+  end
+
+  test "conformance: a reference object holds only its $ref; roots point at roots", %{doc: doc} do
+    walk = fn walk, node ->
+      case node do
+        %{"$ref" => _} = m ->
+          assert Map.keys(m) == ["$ref"], "a reference with extra fields: #{inspect(m)}"
+
+        m when is_map(m) ->
+          Enum.each(Map.values(m), &walk.(walk, &1))
+
+        l when is_list(l) ->
+          Enum.each(l, &walk.(walk, &1))
+
+        _ ->
+          :ok
+      end
+    end
+
+    walk.(walk, doc)
+
+    for {id, op} <- doc["operations"] do
+      assert String.starts_with?(op["channel"]["$ref"], "#/channels/"),
+             "root operation #{id} points outside the root channels"
+
+      if reply = op["reply"],
+        do:
+          assert(
+            String.starts_with?(reply["channel"]["$ref"], "#/channels/"),
+            "root operation #{id} reply"
+          )
+    end
+
+    for {id, ch} <- doc["channels"],
+        %{"$ref" => ref} <- ch["servers"] || [],
+        do:
+          assert(
+            String.starts_with?(ref, "#/servers/"),
+            "root channel #{id} points outside the root servers"
+          )
+  end
+
   test "conformance: an operation's messages are among its channel's, and so are its reply's", %{
     doc: doc
   } do
