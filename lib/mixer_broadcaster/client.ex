@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Client do
   @moduledoc """
   WebTransport client with the same transfer modes as entities-godot `WebTransportPeer`:

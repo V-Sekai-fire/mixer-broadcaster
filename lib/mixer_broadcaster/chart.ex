@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Chart do
   @moduledoc """
   The shared object the three clients agree on: a classic 24-patch color chart, 24 sRGB 8-bit patches (D65),

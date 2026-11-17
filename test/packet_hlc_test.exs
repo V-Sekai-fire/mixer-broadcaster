@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.PacketHlcTest do
   @moduledoc """
   GOLDEN: the 64 packets of contract-entity-packet parse, carry the clock the CSV lists, and survive a restamp.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Handler do
   @moduledoc """
   Session handler. First increment (Gall's law): echo every reliable packet and datagram back to its sender.

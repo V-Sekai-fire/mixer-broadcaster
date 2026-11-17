@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Session do
   @moduledoc """
   One client of the relay speaking the Mixer protocol, at `/mixer`.

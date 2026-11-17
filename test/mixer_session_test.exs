@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.SessionTest do
   @moduledoc """
   GOLDEN: two clients speak the Mixer protocol as 100-byte command packets: one creates a room, the other joins and is

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Wire do
   @moduledoc """
   Mixer's wire format, as `mixer/broadcaster/common.py` writes it.

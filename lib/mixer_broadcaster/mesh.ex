@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mesh do
   @moduledoc """
   A client asks `{"t":"mesh","digest":"<hex>"}` and, if it may, gets short-lived presigned S3 URLs for the mesh's desync

@@ -1,0 +1,46 @@
+version = 1
+SPDX-PackageName = "mixer-broadcaster"
+SPDX-PackageDownloadLocation = "https://github.com/V-Sekai-fire/mixer-broadcaster"
+
+# Files that cannot carry a comment header (data, lock files, fixtures, docs) are licensed here.
+# The wire design descends from Ubisoft's MIT broadcaster, so its notice is kept (see LICENSE).
+[[annotations]]
+path = [
+  "LICENSE",
+  "README.md",
+  "REUSE.toml",
+  "mix.lock",
+  ".gitattributes",
+  "test/fixtures/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = [
+  "2020 Ubisoft (original Mixer broadcaster protocol and design)",
+  "2026 K. S. Ernest (iFire) Lee",
+]
+SPDX-License-Identifier = "MIT"
+
+# vendor/transport-zone-relay is a subtree of V-Sekai-fire/transport-zone-relay (MIT, same author).
+# Its files are not edited here, so a header already inside a file wins ("closest") and this
+# entry covers only the files that have none.
+[[annotations]]
+path = "vendor/transport-zone-relay/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT"
+
+# Its README offers fdb-sqlite under either licence, at the user's option.
+[[annotations]]
+path = "vendor/transport-zone-relay/thirdparty/fdb-sqlite/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# muscle-drive came from V-Sekai-fire/interactor-muscle-drive, which stated no licence. Every commit there is
+# by K. S. Ernest (iFire) Lee (or his bot persona), who released it as MIT here. It needs MuscleMimic and
+# MS-Human-700 at run time but contains none of their files.
+[[annotations]]
+path = "vendor/transport-zone-relay/thirdparty/muscle-drive/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 K. S. Ernest (iFire) Lee"
+SPDX-License-Identifier = "MIT"

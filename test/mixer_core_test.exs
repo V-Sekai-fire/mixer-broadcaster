@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.CoreTest do
   @moduledoc """
   GOLDEN: a creator, a late joiner and a client outside the room go through a Mixer session the way the Python server

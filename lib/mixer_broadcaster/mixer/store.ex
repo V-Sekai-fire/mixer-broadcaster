@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Store do
   @moduledoc """
   Where bulk command data lives, named by the SHA-256 of its bytes. A command too big for its packet holds that digest;

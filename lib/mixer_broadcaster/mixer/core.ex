@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.Core do
   @moduledoc """
   The Mixer server's rules, as a pure state machine: `handle(state, client_id, command)` returns the new state and the

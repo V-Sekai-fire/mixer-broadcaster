@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Hlc do
   @moduledoc """
   The traditional Hybrid Logical Clock (Kulkarni, Demirbas et al., "Logical Physical Clocks", 2014).

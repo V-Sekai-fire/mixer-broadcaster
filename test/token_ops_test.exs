@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.TokenOpsTest do
   @moduledoc """
   GOLDEN: a token minted with the "read" operation allows a read in its rooms; a holder may drop the right.

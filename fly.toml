@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 # Fly.io: one UDP service. No http_service, no TCP port, no health check that could be a second way in.
 # Secrets (never in this file): MB_ROOT_KEY, and optionally MB_CERT_PEM and MB_KEY_PEM.
 app = "chibifire-mixer-relay"

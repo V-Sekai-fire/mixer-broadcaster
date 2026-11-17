@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.Mixer.S3Test do
   @moduledoc """
   GOLDEN: the signature equals the one the Python add-on makes for the same request (pinned values, both accepted by

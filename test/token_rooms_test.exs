@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 K. S. Ernest (iFire) Lee
+#
+# SPDX-License-Identifier: MIT
+
 defmodule MixerBroadcaster.TokenRoomsTest do
   @moduledoc """
   GOLDEN: a token for a set of rooms admits each room in the set; a holder narrows it to some of them.
