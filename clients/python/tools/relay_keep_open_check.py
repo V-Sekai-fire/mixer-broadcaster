@@ -60,7 +60,7 @@ a, b = client(), client()
 try:
     pump(a)
     pump(b)
-    a.join_room(KEPT, "5.3", "1", False, False)
+    a.join_room(KEPT, "check", "1", "1", False)
     pump(a)
     a.set_room_keep_open(KEPT, True)
     updates = [cmd for cmd in pump(a) if cmd.type == T.ROOM_UPDATE]
@@ -75,14 +75,14 @@ try:
     r = rooms_seen(b)
     check("the kept room outlives its last player", KEPT in r and r[KEPT].get("keep_open") is True, list(r))
 
-    a.join_room(GONE, "5.3", "1", False, False)
+    a.join_room(GONE, "check", "1", "1", False)
     pump(a)
     a.leave_room(GONE)
     pump(a)
     r = rooms_seen(b)
     check("control: a room not kept open goes with its last player", GONE not in r, list(r))
 
-    b.join_room(KEPT, "5.3", "1", False, False)
+    b.join_room(KEPT, "check", "1", "1", False)
     pump(b)
     b.set_room_keep_open(KEPT, False)
     pump(b)

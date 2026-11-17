@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def download_room(
-    host: str, port: int, room_name: str, blender_version: str, mixer_version: str, generic_protocol: bool
+    host: str, port: int, room_name: str, engine: str, engine_version: str, mixer_version: str
 ) -> Tuple[Dict[str, Any], List[Command]]:
     from mixer.broadcaster.common import decode_json, RoomAttributes
 
@@ -47,7 +47,7 @@ def download_room(
     commands = []
 
     with Client(host, port) as client:
-        client.join_room(room_name, blender_version, mixer_version, False, generic_protocol)
+        client.join_room(room_name, engine, engine_version, mixer_version, False)
 
         room_attributes = None
 
@@ -88,19 +88,19 @@ def download_room(
 def upload_room(host: str, port: int, room_name: str, room_attributes: dict, commands: List[Command]):
     """
     Upload a room to the server.
-    Warning: This function is blocking, so when run from Blender the client dedicated to the user will be blocked and will accumulate lot of
+    Warning: This function is blocking, so when run from a host application the client dedicated to the user will be blocked and will accumulate lot of
     room updates that will be processed later.
-    Todo: Write a non blocking version of this function to be used inside Blender, some kind of UploadClient that can exist side by side with BlenderClient.
+    Todo: Write a non blocking version of this function to be used inside a host application, some kind of UploadClient that can exist side by side with its own client.
     """
     from mixer.broadcaster.common import RoomAttributes
 
     with Client(host, port) as client:
         client.join_room(
             room_name,
-            room_attributes.get(RoomAttributes.BLENDER_VERSION, ""),
+            room_attributes.get(RoomAttributes.ENGINE, ""),
+            room_attributes.get(RoomAttributes.ENGINE_VERSION, ""),
             room_attributes.get(RoomAttributes.MIXER_VERSION, ""),
             False,
-            room_attributes.get(RoomAttributes.GENERIC_PROTOCOL, True),
         )
         client.set_room_attributes(room_name, room_attributes)
         client.set_room_keep_open(room_name, True)

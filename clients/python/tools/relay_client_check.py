@@ -64,7 +64,7 @@ try:
         (a.client_id, b.client_id),
     )
 
-    a.join_room("w1", "5.3", "1", False, False)
+    a.join_room("w1", "check", "1", "1", False)
     pump([a], 1.0)
     check("a created w1 (current_room set by the client's own handler)", a.current_room == "w1", a.current_room)
     a.send_command(common.Command(T.CONTENT))
@@ -74,7 +74,7 @@ try:
     a.send_command(common.Command(T.ENTITY_STATE, pose))
     pump([a], 1.0)
 
-    b.join_room("w1", "5.3", "1", False, False)
+    b.join_room("w1", "check", "1", "1", False)
     got = pump([b], 2.0)[id(b)]
     types = [x.type for x in got]
     check("b joined late through the client class", b.current_room == "w1" and T.JOIN_ROOM in types, b.current_room)
@@ -94,7 +94,7 @@ try:
     got = pump([b], 1.0)[id(b)]
     check("b hears ENTITY_REMOVE", any(x.type == T.ENTITY_REMOVE and x.data == (7).to_bytes(4, "little") for x in got))
 
-    c.join_room("w1", "5.3", "1", False, False)
+    c.join_room("w1", "check", "1", "1", False)
     got = pump([c], 1.5)[id(c)]
     check(
         "c (token for w2) is refused w1",

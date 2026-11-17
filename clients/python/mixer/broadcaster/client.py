@@ -157,19 +157,24 @@ class Client:
     def join_room(
         self,
         room_name: str,
-        blender_version: str,
+        engine: str,
+        engine_version: str,
         mixer_version: str,
         ignore_version_check: bool,
-        generic_protocol: bool,
     ):
-        name = common.encode_string(room_name)
-        bl_version = common.encode_string(blender_version)
-        mix_version = common.encode_string(mixer_version)
-        version_check = common.encode_bool(ignore_version_check)
-        protocol = common.encode_bool(generic_protocol)
-        return self.send_command(
-            common.Command(common.MessageType.JOIN_ROOM, name + bl_version + mix_version + version_check + protocol, 0)
+        """Join a room, creating it if nobody has the name.
+
+        engine and engine_version say what this client is, whatever it is (free text, may be empty); the relay compares
+        the version only with a client of the same engine. mixer_version is the protocol version and is never empty.
+        """
+        data = (
+            common.encode_string(room_name)
+            + common.encode_string(engine)
+            + common.encode_string(engine_version)
+            + common.encode_string(mixer_version)
+            + common.encode_bool(ignore_version_check)
         )
+        return self.send_command(common.Command(common.MessageType.JOIN_ROOM, data, 0))
 
     def leave_room(self, room_name: str):
         self.current_room = None

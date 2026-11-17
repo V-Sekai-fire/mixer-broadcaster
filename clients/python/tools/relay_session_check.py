@@ -26,9 +26,9 @@ BULK = os.urandom(3000).hex().encode()  # 6000 bytes: far over the 77 a packet h
 def join_data(room):
     return (
         common.encode_string(room)
-        + common.encode_string("5.3")
+        + common.encode_string("check")
         + common.encode_string("1")
-        + common.encode_bool(False)
+        + common.encode_string("1")
         + common.encode_bool(False)
     )
 

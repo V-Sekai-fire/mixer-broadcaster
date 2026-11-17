@@ -52,7 +52,7 @@ defmodule MixerBroadcaster.AuthSessionTest do
         id: 0,
         data:
           Wire.string(room) <>
-            Wire.string("5") <> Wire.string("1") <> Wire.bool(false) <> Wire.bool(false)
+            Wire.string("godot") <> Wire.string("4.8") <> Wire.string("1") <> Wire.bool(false)
       }
     end
 
