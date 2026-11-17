@@ -49,6 +49,8 @@ defmodule MixerBroadcaster.Token do
   A token for `room`, or for any of a list of rooms. It is useless until the minter at `location` (holding
   `tp_key`) discharges it.
   """
+  @spec issue(binary(), String.t() | [String.t()], String.t(), binary(), [String.t()]) ::
+          binary() | {:error, :bad_ops | :bad_rooms}
   def issue(root_key, room, location, tp_key, ops \\ [])
 
   def issue(root_key, room, location, tp_key, ops)
@@ -113,6 +115,7 @@ defmodule MixerBroadcaster.Token do
   key for the next link. The result still has to satisfy every caveat before it, so a room outside the original set
   stays refused.
   """
+  @spec restrict_rooms(binary(), [String.t(), ...]) :: {:ok, binary()} | {:error, term()}
   def restrict_rooms(token, [_ | _] = rooms)
       when is_binary(token) and length(rooms) <= @max_rooms do
     with true <- Enum.all?(rooms, &is_binary/1) or {:error, :bad_rooms},
@@ -130,6 +133,7 @@ defmodule MixerBroadcaster.Token do
   Narrow a token's operations by appending a `1005` caveat. Like `restrict_rooms/2` it needs no key and can only remove
   rights: every `1005` caveat has to name an operation for it to be allowed.
   """
+  @spec restrict_ops(binary(), [String.t()]) :: {:ok, binary()} | {:error, term()}
   def restrict_ops(token, ops) when is_binary(token) and is_list(ops) do
     with :ok <- check_ops(ops),
          {:ok, [@version, main, ds]} <- strict_decode(token),
@@ -145,6 +149,8 @@ defmodule MixerBroadcaster.Token do
   # ---- minter side ----
 
   @doc "After authenticating the player: bind the token to their key for `ttl` seconds."
+  @spec discharge(binary(), binary(), binary(), pos_integer(), integer()) ::
+          {:ok, binary()} | {:error, term()}
   def discharge(token, tp_key, thumbprint, ttl, now \\ System.os_time(:second))
       when byte_size(tp_key) == 32 and byte_size(thumbprint) == 32 and is_integer(ttl) and ttl > 0 do
     with {:ok, [@version, main, ds]} <- strict_decode(token),

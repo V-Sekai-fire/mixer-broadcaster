@@ -24,6 +24,7 @@ defmodule MixerBroadcaster.Loss do
   }
 
   @doc "A channel from a preset name, a probability, or a map of the four parameters."
+  @spec new(nil | String.t() | number() | map() | t(), integer() | nil) :: t() | nil
   def new(spec, seed \\ nil)
   def new(nil, _), do: nil
   def new("off", _), do: nil
@@ -51,6 +52,7 @@ defmodule MixerBroadcaster.Loss do
   end
 
   @doc "The channel the application is configured for, or nil. One per session, so sessions do not share a burst."
+  @spec from_env(%{optional(String.t()) => String.t()}) :: t() | nil
   def from_env(env \\ System.get_env()) do
     spec = Application.get_env(:mixer_broadcaster, :loss) || env["MB_LOSS"]
     seed = if s = env["MB_LOSS_SEED"], do: String.to_integer(s), else: nil
@@ -58,6 +60,7 @@ defmodule MixerBroadcaster.Loss do
   end
 
   @doc "Decide one datagram. `nil` is no channel: everything passes."
+  @spec step(t() | nil) :: {:drop | :pass, t() | nil}
   def step(nil), do: {:pass, nil}
 
   def step(%__MODULE__{} = c) do
@@ -74,6 +77,7 @@ defmodule MixerBroadcaster.Loss do
   defp other(:bad), do: :good
 
   @doc "The long-run loss rate the parameters give, from the stationary state probabilities."
+  @spec expected_loss(t()) :: number()
   def expected_loss(%__MODULE__{p_gb: a, p_bg: b, loss_good: lg, loss_bad: lb}) when a + b > 0 do
     bad = a / (a + b)
     bad * lb + (1 - bad) * lg

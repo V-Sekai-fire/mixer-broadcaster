@@ -44,6 +44,7 @@ defmodule MixerBroadcaster.Hlc do
   end
 
   @doc "The order the paper defines: `l` first, then `c`."
+  @spec before?(t(), t()) :: boolean()
   def before?({l1, c1}, {l2, c2}), do: l1 < l2 or (l1 == l2 and c1 < c2)
 
   defp check(l, c) when l > @l_max or c > @c_max, do: :error
@@ -56,9 +57,11 @@ defmodule MixerBroadcaster.Clock do
 
   alias MixerBroadcaster.Hlc
 
+  @spec start_link(term()) :: Agent.on_start()
   def start_link(_), do: Agent.start_link(fn -> {0, 0} end, name: __MODULE__)
 
   @doc "Stamp a packet that arrived with HLC word `word`; returns the word to forward, or `:error`."
+  @spec stamp(non_neg_integer(), integer()) :: {:ok, non_neg_integer()} | :error
   def stamp(word, pt_ms \\ System.os_time(:millisecond)) do
     Agent.get_and_update(__MODULE__, fn mine ->
       case Hlc.recv(mine, Hlc.unpack(word), pt_ms) do
@@ -79,14 +82,18 @@ defmodule MixerBroadcaster.Packet do
   @off_hlc 40
   @off_reserved 98
 
+  @spec size() :: pos_integer()
   def size, do: @size
 
   @doc "A packet is exactly 100 bytes and its two reserved bytes are zero."
+  @spec valid?(binary()) :: boolean()
   def valid?(<<_::binary-size(@off_reserved), 0, 0>>), do: true
   def valid?(_), do: false
 
+  @spec hlc(binary()) :: non_neg_integer()
   def hlc(<<_::binary-size(@off_hlc), w::little-unsigned-64, _::binary>>), do: w
 
+  @spec put_hlc(binary(), non_neg_integer()) :: binary()
   def put_hlc(<<head::binary-size(@off_hlc), _::binary-size(8), rest::binary>>, w),
     do: <<head::binary, w::little-unsigned-64, rest::binary>>
 end

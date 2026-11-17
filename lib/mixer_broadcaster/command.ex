@@ -19,7 +19,9 @@ defmodule MixerBroadcaster.Command do
   @inline_max 77
   @max_bulk 0xFFFFFF
 
+  @spec size() :: pos_integer()
   def size, do: @size
+  @spec inline_max() :: pos_integer()
   def inline_max, do: @inline_max
 
   @doc "The key two commands share when the newer should replace the older: type and the data's leading string."

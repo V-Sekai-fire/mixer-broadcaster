@@ -5,17 +5,23 @@ defmodule MixerBroadcaster.Mixer.Server do
   """
   use GenServer
 
-  alias MixerBroadcaster.Mixer.Core
+  alias MixerBroadcaster.Mixer.{Core, Wire}
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []),
     do: GenServer.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
 
   @doc "Register the calling process as a client. `allow.(room)` says which rooms its token covers. Returns its id."
+  @spec connect(GenServer.server(), String.t(), non_neg_integer(), (String.t() -> boolean())) ::
+          String.t()
   def connect(server \\ __MODULE__, ip, port, allow),
     do: GenServer.call(server, {:connect, self(), ip, port, allow})
 
+  @spec command(GenServer.server(), String.t(), Wire.command()) :: :ok
   def command(server \\ __MODULE__, id, cmd), do: GenServer.cast(server, {:command, id, cmd})
+  @spec disconnect(GenServer.server(), String.t()) :: :ok
   def disconnect(server \\ __MODULE__, id), do: GenServer.cast(server, {:disconnect, id})
+  @spec state(GenServer.server()) :: Core.t()
   def state(server \\ __MODULE__), do: GenServer.call(server, :state)
 
   @impl true

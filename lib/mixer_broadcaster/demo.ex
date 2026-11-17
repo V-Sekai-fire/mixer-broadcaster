@@ -7,6 +7,9 @@ defmodule MixerBroadcaster.Demo do
   """
   alias MixerBroadcaster.{Server, Web}
 
+  @spec start(keyword()) ::
+          {:ok, %{wt_port: :inet.port_number(), web_port: :inet.port_number(), cert: String.t()}}
+          | {:error, term()}
   def start(opts \\ []) do
     wt_port =
       Keyword.get(opts, :wt_port, String.to_integer(System.get_env("MB_WT_PORT") || "4433"))

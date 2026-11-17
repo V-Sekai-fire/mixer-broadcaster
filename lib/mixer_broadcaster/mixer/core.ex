@@ -19,6 +19,9 @@ defmodule MixerBroadcaster.Mixer.Core do
 
   @no_store [:client_id_wrapper, :frame, :query_animation_data]
 
+  @type t :: %__MODULE__{rooms: map(), clients: map()}
+
+  @spec new() :: t()
   def new, do: %__MODULE__{}
 
   @doc """
@@ -26,6 +29,7 @@ defmodule MixerBroadcaster.Mixer.Core do
   may see (`fn room -> boolean end`): a closed relay passes the check its token admits, so a client hears about a
   room, and about who is in it, only if its token covers that room.
   """
+  @spec connect(t(), String.t(), String.t(), non_neg_integer(), (String.t() -> boolean())) :: t()
   def connect(%__MODULE__{} = s, id, ip, port, allow \\ fn _ -> true end)
       when is_binary(id) and is_binary(ip) and is_integer(port) and is_function(allow, 1) do
     %{
@@ -36,6 +40,7 @@ defmodule MixerBroadcaster.Mixer.Core do
   end
 
   @doc "A client is gone: it leaves its room, and everyone else is told."
+  @spec disconnect(t(), String.t()) :: {t(), [{String.t(), Wire.encoded()}]}
   def disconnect(%__MODULE__{} = s, id) do
     case Map.fetch(s.clients, id) do
       :error ->
@@ -48,8 +53,7 @@ defmodule MixerBroadcaster.Mixer.Core do
     end
   end
 
-  @spec handle(%__MODULE__{}, String.t(), Wire.command()) ::
-          {%__MODULE__{}, [{String.t(), binary()}]}
+  @spec handle(t(), String.t(), Wire.command()) :: {t(), [{String.t(), Wire.encoded()}]}
   def handle(%__MODULE__{} = s, id, %{type: type, data: data} = cmd) do
     if Map.has_key?(s.clients, id),
       do: dispatch(s, id, Wire.type_name(type), type, data, cmd),

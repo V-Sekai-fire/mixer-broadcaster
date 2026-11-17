@@ -31,12 +31,14 @@ defmodule MixerBroadcaster.Mixer.Caibx do
   defp items(_, _, _), do: {:error, :bad_index}
 
   @doc "The object key of a chunk in the store: `chunks/<first four hex>/<hex>.cacnk`."
+  @spec chunk_key(<<_::256>>) :: String.t()
   def chunk_key(<<_::binary-size(32)>> = id) do
     hex = Base.encode16(id, case: :lower)
     "chunks/" <> binary_part(hex, 0, 4) <> "/" <> hex <> ".cacnk"
   end
 
   @doc "The object key of an index: `index/<hex of its SHA-256>.caibx`."
+  @spec index_key(<<_::256>>) :: String.t()
   def index_key(<<_::binary-size(32)>> = digest),
     do: "index/" <> Base.encode16(digest, case: :lower) <> ".caibx"
 end
