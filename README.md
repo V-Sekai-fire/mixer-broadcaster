@@ -2,8 +2,8 @@
 
 The broadcaster for [Mixer](https://github.com/V-Sekai-fire/mixer), in Elixir. **HTTP/3 WebTransport is the only network protocol.**
 
-This repository is MIT. It never imports `bpy` or any GPL code: the Blender add-on (GPLv3) lives in its own repository
-and talks to this server over WebTransport only, the same split Adobe uses for its Substance add-on and Integration Tools.
+The Blender add-on (GPLv3) lives in a different repository and talks to this server over WebTransport only.
+
 The wire design descends from Ubisoft's MIT broadcaster (`mixer/broadcaster`), see `LICENSE`.
 
 Transport semantics match entities-godot `WebTransportPeer`: unreliable packets are QUIC datagrams, each reliable packet
