@@ -13,6 +13,11 @@ relay's interface is `spec/asyncapi.yaml`; these modules are one implementation 
 - `mixer/broadcaster/` the client modules: `wt.py` (WebTransport), `relay.py` (the command path), `relay_transport.py`
   (session, keepalive), `entity.py` (the 100-byte packet and command packets), `geo_publish.py`, `mesh_split.py`,
   `meshlets.py`, `s3.py`, `texture.py`, `client.py`, `common.py`, `socket.py`, `room_bake.py`, `cli_utils.py`.
+- `mixer/broadcaster/room_state.py` the headless reference consumer's room state (#32): feed it the 100-byte packets a client
+  hears and it gives the entity count, a digest, and per zone (a square cell on X and Z, size a parameter) the count, the
+  bounding box of entity positions and a digest, as exact integers. Newest clock wins, order and repeats do not matter, the
+  relay's clock field is left out of every digest. `python tools/room_state.py PACKETS.bin` prints it as JSON, so `diff`
+  compares two clients. It does not join a room or fetch meshes yet.
 - `mixer/broadcaster/render.py` renders a room's entities with Mitsuba 3: `render(entities, meshes)` gives an RGB array. An
   entity whose mesh has not arrived is a unit cube. `mitsuba` is imported only when rendering.
 - `mixer/broadcaster/frames.py` coordinate frames. Each engine and renderer has its own (Blender Z up, a left-handed Y-up layout,

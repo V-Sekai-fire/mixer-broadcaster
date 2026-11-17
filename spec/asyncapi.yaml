@@ -20,6 +20,10 @@ info:
     is admitted with a token, the player's key and a signature over a nonce from the relay before it is put in a room.
     The wire has one coordinate frame: right-handed, X right, Y up, -Z forward, metres. Every position, rotation and mesh
     is in it; a client in another frame converts before it sends.
+    The wire has no zone field. A consumer that compares room state (the headless reference, #32) cuts the room into zones
+    of its own: today square columns on X and Z (default 16 m), later rectangular prisms cut the way a video codec cuts a frame, on
+    X, Y and Z, from the entity positions alone (`room_state.py`, `blocks_of`, not built). Either way a zone never
+    travels on the wire, so nothing here changes when the cut does.
   license:
     name: MIT
     url: https://opensource.org/license/mit
@@ -42,7 +46,7 @@ servers:
       MB_SERVE: '1 starts the closed relay: auth required, no demo. It does not start without MB_ROOT_KEY.'
       MB_ROOT_KEY: 64 hex characters, the macaroon root every token is verified against.
       MB_WT_PORT: The WebTransport port, UDP (default 4433).
-      MB_BIND: A host name to bind to (Fly UDP needs `fly-global-services`).
+      MB_BIND: A host name to bind to (a host whose UDP needs a named address takes it here).
       MB_HOST: The name in the certificate (default localhost).
       MB_ORIGINS: Browser origins let in, comma separated. Empty by default, so no browser page is let in.
       MB_CERT_PEM: A fixed certificate; with MB_KEY_PEM it replaces the generated one.
@@ -374,7 +378,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/home'}
     messages: []
-    summary: Demo only. The three.js client.
+    summary: Demo only. The browser client.
     bindings:
       http: {method: GET}
     reply:
