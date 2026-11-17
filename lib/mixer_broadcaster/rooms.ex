@@ -19,6 +19,13 @@ defmodule MixerBroadcaster.Rooms do
     end)
   end
 
+  @doc "Forget an entity: a late joiner is no longer replayed it. An id nobody posted is a no-op."
+  def delete_entity(room, gid) when is_integer(gid) do
+    Agent.update(__MODULE__, fn rooms ->
+      Map.update(rooms, {:entities, room}, %{}, &Map.delete(&1, <<gid::little-32>>))
+    end)
+  end
+
   @doc """
   The rooms that have a player in them or a remembered entity: `[%{name, players, entities}]`, by name. A room a
   client has only asked for, and never joined, is not listed; a room whose players have left stays while it still

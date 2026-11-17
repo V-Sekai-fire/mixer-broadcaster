@@ -15,7 +15,7 @@ defmodule MixerBroadcaster.MeshTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
-  alias MixerBroadcaster.{Auth, Hub, Rooms, Token}
+  alias MixerBroadcaster.{Auth, Hub, Mesh, Rooms, Token}
   alias MixerBroadcaster.Mixer.Caibx
   alias MixerBroadcaster.Mixer.Store.S3
 
@@ -35,6 +35,24 @@ defmodule MixerBroadcaster.MeshTest do
     end
 
     def presign_get(key, ttl), do: {:ok, "https://s3.test/#{key}?ttl=#{ttl}"}
+  end
+
+  # a store whose one mesh has twelve chunks and whose presigned URLs are as long as S3's real ones (about 400 bytes)
+  defmodule ManyBlobs do
+    def ids, do: for(i <- 1..12, do: :crypto.hash(:sha256, <<i>>))
+
+    def index do
+      items = for id <- ids(), into: <<>>, do: <<1::little-64, id::binary>>
+
+      <<48::little-64, 0x96824D9C7B129FF9::little-64, 0::little-64, 0::little-64, 0::little-64,
+        0::little-64, 0xFFFFFFFFFFFFFFFF::little-64, 0xE75B9E112F17417D::little-64, items::binary,
+        0::little-128, 0::little-64>>
+    end
+
+    def object(_key), do: {:ok, index()}
+
+    def presign_get(key, ttl),
+      do: {:ok, "http://127.0.0.1:8333/mixer/" <> key <> "?" <> String.duplicate("X-Amz-Signature=ab&", 16) <> "ttl=#{ttl}"}
   end
 
   # a store that answers the index key with another (valid) index
@@ -255,6 +273,143 @@ defmodule MixerBroadcaster.MeshTest do
     st = admitted(c, c.room, c.room, ["read"])
     Application.put_env(:mixer_broadcaster, :blob_access, SwappedBlobs)
     assert ask(st, @cube_digest) == %{"t" => "error", "reason" => "unavailable"}
+  end
+
+  # ---- the same questions as datagrams (a client that reads no stream replies, such as Godot's WebTransportPeer) ----
+
+  defp dgram(state, msg) do
+    {:ok, st, out} = Hub.handle_datagram(JSON.encode!(msg), state)
+    {st, for({:send_datagram, b} <- out, do: JSON.decode!(b))}
+  end
+
+  test "golden: a client that only uses datagrams can sign in and get a mesh", c do
+    pose(c.room, 1, @cube_digest)
+    {pub, priv} = Auth.generate_key()
+    t = Token.issue(c.root, c.room, "minter", c.tp, ["read"])
+    {:ok, full} = Token.discharge(t, c.tp, Auth.thumbprint(pub), 3600, System.os_time(:second))
+    st = elem(Hub.init(nil, %{path: "/room/#{c.room}"}, []), 1)
+
+    {st, [%{"t" => "challenge", "nonce" => n}]} = dgram(st, %{t: "hello"})
+    nonce = Base.url_decode64!(n, padding: false)
+
+    {st, [%{"t" => "ready"}]} =
+      dgram(st, %{
+        t: "auth",
+        token: b64(full),
+        key: b64(pub),
+        sig: b64(Auth.sign(priv, c.room, nonce))
+      })
+
+    {_, [%{"t" => "mesh", "digest" => dg, "chunks" => [_]} = r]} =
+      dgram(st, %{t: "mesh", digest: Base.encode16(@cube_digest, case: :lower)})
+
+    assert dg == Base.encode16(@cube_digest, case: :lower)
+    assert r["index"] =~ Caibx.index_key(@cube_digest)
+  end
+
+  test "golden: a mesh of many chunks, asked by datagram, comes back as datagrams that each fit", c do
+    digest = :crypto.hash(:sha256, ManyBlobs.index())
+    pose(c.room, 1, digest)
+    Application.put_env(:mixer_broadcaster, :blob_access, ManyBlobs)
+    st = admitted(c, c.room, c.room, ["read"])
+
+    {_, replies} = dgram(st, %{t: "mesh", digest: Base.encode16(digest, case: :lower)})
+    assert length(replies) > 3, "twelve long URLs do not fit one datagram"
+    assert hd(replies)["t"] == "mesh" and Enum.all?(tl(replies), &(&1["t"] == "mesh_more"))
+    assert hd(replies)["n"] == 12
+    assert Enum.flat_map(replies, & &1["chunks"]) |> length() == 12
+
+    {:ok, _, out} =
+      Hub.handle_datagram(JSON.encode!(%{t: "mesh", digest: Base.encode16(digest, case: :lower)}), st)
+
+    assert Enum.all?(out, fn {:send_datagram, b} -> byte_size(b) <= 900 end)
+  end
+
+  test "control: a pose sent as a datagram gets no reply, a refusal does", c do
+    st = admitted(c, c.room, c.room, ["read"])
+
+    pkt =
+      <<1::little-32, 0::unit(8)-size(44), 0::little-24, 4, 0::unit(8)-size(10), 0::256, 0::48>>
+
+    assert {:ok, _, []} = Hub.handle_datagram(pkt, st)
+
+    assert {_, [%{"t" => "error", "reason" => "denied"}]} =
+             dgram(st, %{t: "mesh", digest: String.duplicate("ab", 32)})
+  end
+
+  property "a mesh reply cut for datagrams loses nothing and each piece fits" do
+    check all(
+            urls <-
+              list_of(string(:alphanumeric, min_length: 40, max_length: 500),
+                min_length: 1,
+                max_length: 40
+              )
+          ) do
+      reply =
+        JSON.encode!(%{
+          t: "mesh",
+          digest: "ab",
+          expires: 300,
+          index: "https://s3.test/i",
+          chunks: urls
+        })
+
+      pieces = Mesh.split(reply, 900)
+      [first | later] = Enum.map(pieces, &JSON.decode!/1)
+
+      assert first["t"] == "mesh" and (first["n"] || length(first["chunks"])) == length(urls) and
+               first["index"] == "https://s3.test/i"
+
+      assert Enum.all?(later, &(&1["t"] == "mesh_more" and &1["digest"] == "ab"))
+      # the pieces, in order, rebuild the URL list, and `from` says where each begins
+      all = first["chunks"] ++ Enum.flat_map(later, & &1["chunks"])
+      assert all == urls
+
+      Enum.reduce(later, length(first["chunks"]), fn m, from ->
+        assert m["from"] == from
+        from + length(m["chunks"])
+      end)
+
+      # each piece fits, unless it carries a single URL that is itself too long
+      for p <- pieces,
+          d = JSON.decode!(p),
+          length(d["chunks"]) > 1,
+          do: assert(byte_size(p) <= 900)
+    end
+  end
+
+  property "a real presigned reply, whose index URL is long, still has every piece within the datagram budget" do
+    # the index URL of a presigned reply is about 560 bytes and a chunk URL about 400: the first piece used to be forced
+    # to carry one chunk, went over the limit, and the relay dropped it ("too_large"), so a viewer got no answer at all
+    check all(
+            index_len <- integer(300..700),
+            url_len <- integer(250..450),
+            count <- integer(1..60)
+          ) do
+      urls = for i <- 1..count, do: String.pad_trailing("c#{i}-", url_len, "x")
+
+      reply =
+        JSON.encode!(%{
+          t: "mesh",
+          digest: String.duplicate("ab", 32),
+          expires: 300.0,
+          index: String.duplicate("i", index_len),
+          chunks: urls
+        })
+
+      pieces = Mesh.split(reply, 900)
+      assert Enum.all?(pieces, &(byte_size(&1) <= 900 or length(JSON.decode!(&1)["chunks"]) == 1))
+      assert byte_size(hd(pieces)) <= 900 or index_len > 600
+      [first | later] = Enum.map(pieces, &JSON.decode!/1)
+      assert first["chunks"] ++ Enum.flat_map(later, & &1["chunks"]) == urls
+    end
+  end
+
+  test "control: a short reply and a non-mesh reply are not cut" do
+    short = JSON.encode!(%{t: "mesh", digest: "ab", chunks: ["u"]})
+    assert Mesh.split(short, 900) == [short]
+    assert Mesh.split(~s({"t":"ready"}), 10) == [~s({"t":"ready"})]
+    assert Mesh.split("not json " <> String.duplicate("x", 2000), 900) |> length() == 1
   end
 
   test "control: a failing store is `unavailable`, not a crash", c do

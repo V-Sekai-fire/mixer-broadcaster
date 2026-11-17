@@ -1,0 +1,189 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Live view of a Mixer room (closed relay)</title>
+<style>html,body{margin:0;background:#141414;color:#ccc;font:12px monospace}canvas{display:block}#s{position:fixed;left:6px;top:4px;white-space:pre}#con{position:fixed;left:0;right:0;bottom:0;height:34%;overflow-y:auto;background:#0b0b0bdd;border-top:1px solid #444;padding:4px 8px;white-space:pre-wrap;font-size:12px}#con .e{color:#ff7b7b}#con .ok{color:#8fdc8f}#con .w{color:#e8c46a}</style>
+<canvas id="c" width="640" height="480"></canvas>
+<div id="s"></div>
+<div id="con"></div>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.170.0/build/three.module.js";
+import { decompress } from "https://esm.sh/fzstd@0.1.1";
+// A viewer of the closed relay: it makes its own key, asks the minter for a token that carries the read right, proves it
+// holds the key, joins the room over HTTP/3 WebTransport, and draws what Blender sends. A mesh is fetched by the digest
+// in the pose packet: the relay hands over short-lived presigned S3 URLs for the desync index and its chunks, and the
+// page checks the index against the digest. The signing here is WebCrypto; the guest ELF replaces this one step.
+const room = new URLSearchParams(location.search).get("room") || "live";
+const S = (window.__live = { room, step: "start", packets: 0, entities: 0, meshes: 0, denied: 0, error: null });
+const status = document.getElementById("s");
+const con = document.getElementById("con"), t0 = performance.now();
+// The console: every step and every relay reply, newest at the bottom. cls is "", "ok", "w" or "e".
+function log(msg, cls = "") {
+  const line = document.createElement("div"); if (cls) line.className = cls;
+  line.textContent = `${((performance.now() - t0) / 1000).toFixed(2).padStart(7)}s  ${msg}`;
+  con.appendChild(line); while (con.childNodes.length > 400) con.removeChild(con.firstChild);
+  con.scrollTop = con.scrollHeight; console.log(msg);
+}
+window.addEventListener("error", (e) => log("error: " + e.message, "e"));
+window.addEventListener("unhandledrejection", (e) => log("error: " + e.reason, "e"));
+const say = () => (status.textContent = `room ${room}  ${S.step}\npackets ${S.packets}  entities ${S.entities}  meshes ${S.meshes}  denied ${S.denied}` + (S.error ? `\nERROR ${S.error}` : "") + (S.reply ? `\nrelay said ${S.reply}` : ""));
+const b64u = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+const hex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), antialias: true });
+renderer.setSize(640, 480, false);
+renderer.setClearColor(0x141414);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, 640 / 480, 0.05, 200);
+camera.position.set(5, 4, 8); camera.lookAt(0, 0, 0);
+scene.add(new THREE.GridHelper(20, 20, 0x444444, 0x2a2a2a));
+const light = new THREE.DirectionalLight(0xffffff, 2.5); light.position.set(3, 6, 4); scene.add(light, new THREE.AmbientLight(0xffffff, 0.6));
+
+function arrayAfter(text, key) {
+  const i = text.indexOf(key); if (i < 0) return [];
+  const a = text.indexOf("[", i); let depth = 0;
+  for (let j = a; j < text.length; j++) {
+    if (text[j] === "[") depth++; else if (text[j] === "]" && --depth === 0)
+      return (text.slice(a + 1, j).match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) || []).map(Number);
+  }
+  return [];
+}
+function geometryOf(usda) {
+  const pts = arrayAfter(usda, "points = "), tri = arrayAfter(usda, "faceVertexIndices = ");
+  const pos = new Float32Array(tri.length * 3);
+  tri.forEach((vi, k) => pos.set([pts[vi * 3], pts[vi * 3 + 1], pts[vi * 3 + 2]], k * 3));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// ---- the relay ----
+let wt, ask;
+async function readAll(readable) {
+  const parts = []; const r = readable.getReader();
+  for (;;) { const { value, done } = await r.read(); if (done) break; parts.push(value); }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+async function question(obj) {
+  const s = await wt.createBidirectionalStream();
+  const w = s.writable.getWriter(); await w.write(new TextEncoder().encode(JSON.stringify(obj))); await w.close();
+  return JSON.parse(new TextDecoder().decode(await readAll(s.readable)));
+}
+async function login() {
+  const key = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", key.publicKey));
+  S.step = "asking the minter for a token (read)"; say();
+  const minted = await (await fetch("/mint", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ room, key: b64u(pub), ops: ["read"] }) })).json();
+  log("token minted, " + minted.token.length + " chars; hello");
+  const ch = await question({ t: "hello" });
+  const nonce = unb64u(ch.nonce), name = new TextEncoder().encode(room);
+  const msg = new Uint8Array([...new TextEncoder().encode("mixer-relay-v1"), name.length >> 8, name.length & 255, ...name, ...nonce]);
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.privateKey, msg)); // raw r||s
+  const ok = await question({ t: "auth", token: minted.token, key: b64u(pub), sig: b64u(sig) });
+  if (ok.t !== "ready") throw new Error("the relay refused: " + JSON.stringify(ok));
+  log("admitted: relay said ready", "ok");
+}
+
+// ---- meshes, by digest ----
+const geoms = new Map(); // digest hex -> geometry, or null while loading, or false if refused
+let chain = Promise.resolve();
+const tries = new Map();
+// a failed fetch (the store busy, a lost reply) is tried again: a static entity sends no pose to ask again with
+function retry(dg) {
+  const n = (tries.get(dg) || 0) + 1; tries.set(dg, n);
+  if (n > 5) { log("gave up on mesh " + dg.slice(0, 8), "e"); return; }
+  setTimeout(() => { geoms.delete(dg); loadMesh(dg); }, 1500 + n * 1000);
+}
+function loadMesh(dg) {
+  geoms.set(dg, null);
+  chain = chain.then(async () => {
+    try {
+      log("asking the relay for mesh " + dg.slice(0, 8));
+      const r = await question({ t: "mesh", digest: dg });
+      log("relay answered: " + (r.t === "mesh" ? `urls for the index and ${r.chunks.length} chunk(s), good for ${r.expires}s` : JSON.stringify(r)), r.t === "mesh" ? "ok" : "e");
+      if (r.t !== "mesh") { retry(dg); S.denied++; S.reply = JSON.stringify(r) + " for " + dg.slice(0, 8); geoms.set(dg, false); return; }
+      const index = new Uint8Array(await (await fetch(r.index)).arrayBuffer());
+      const sha = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", index)));
+      if (sha !== dg) throw new Error("the index is not the one the digest names");
+      const ids = []; const dv = new DataView(index.buffer);
+      for (let o = 64; o + 40 <= index.length && dv.getBigUint64(o, true) !== 0n; o += 40) ids.push(o);
+      if (ids.length !== r.chunks.length) throw new Error("index and chunk list disagree");
+      const raw = [];
+      for (const url of r.chunks) raw.push(decompress(new Uint8Array(await (await fetch(url)).arrayBuffer())));
+      const all = new Uint8Array(raw.reduce((n, p) => n + p.length, 0)); let o = 0;
+      for (const p of raw) { all.set(p, o); o += p.length; }
+      geoms.set(dg, geometryOf(new TextDecoder().decode(all)));
+      // a late joiner is replayed each entity once, before its mesh is here: draw those now
+      for (const p of latest.values()) if (hex(p.subarray(62, 94)) === dg) onPacket(p);
+      log(`mesh ${dg.slice(0, 8)}: index hash ok, ${raw.length} chunk(s), ${all.length} bytes of USD`, "ok");
+      S.meshes = [...geoms.values()].filter(Boolean).length;
+    } catch (e) { geoms.set(dg, false); S.error = String(e); log("mesh " + dg.slice(0, 8) + " failed: " + e, "e"); retry(dg); }
+    say();
+  });
+}
+
+// ---- poses ----
+const lastPos = new Map(); const seen = new Set(); const nodes = new Map(); const mat = new THREE.MeshStandardMaterial({ color: 0xd8d8e0, roughness: 0.6, side: THREE.DoubleSide });
+// A command packet: type at byte 52, bytes used at 54, the inline run from byte 5. ENTITY_REMOVE (211) names the entity.
+const latest = new Map();   // gid -> newest pose packet, kept until the mesh is here to draw it
+const gone = new Map();   // gid -> hlc of the remove, so an older pose that arrives late does not bring it back
+function onCommand(v) {
+  const type = v.getUint16(52, true), used = v.getUint16(54, true);
+  if (type !== 211 || used < 5 || v.getUint8(4) !== 0) return;
+  const gid = v.getUint32(5, true), m = nodes.get(gid);
+  gone.set(gid, v.getBigUint64(40, true)); latest.delete(gid);
+  if (m) { scene.remove(m); nodes.delete(gid); lastPos.delete(gid); log(`entity ${gid} removed`, "w"); }
+  S.entities = nodes.size;
+}
+function onPacket(b) {
+  if (b.length !== 100) return;
+  const v = new DataView(b.buffer, b.byteOffset, 100);
+  S.packets++;
+  const gid = v.getUint32(0, true), cls = v.getUint8(51);
+  if (!seen.has(gid)) { seen.add(gid); log(`entity ${gid} first seen (class ${cls})`); }
+  if (cls === 128) { onCommand(v); return; }
+  const hlc = v.getBigUint64(40, true);
+  if (gone.has(gid) && hlc <= gone.get(gid)) return;   // a pose older than the remove that named this entity
+  if (gone.has(gid)) gone.delete(gid);                  // a newer pose: the entity is back
+  latest.set(gid, new Uint8Array(b));
+  const x = Number(v.getBigInt64(4, true)) / 1e6, y = Number(v.getBigInt64(12, true)) / 1e6, z = Number(v.getBigInt64(20, true)) / 1e6;
+  const dg = hex(b.subarray(62, 94));
+  let m = nodes.get(gid);
+  if (/[1-9a-f]/.test(dg) && !geoms.has(dg)) loadMesh(dg);
+  const geo = geoms.get(dg);
+  if (geo && (!m || m.userData.dg !== dg)) {
+    if (m) scene.remove(m);
+    m = new THREE.Mesh(geo, mat); m.userData.dg = dg; scene.add(m); nodes.set(gid, m);
+  }
+  if (m) {
+    m.position.set(x, y, z);
+    const sx = v.getInt16(56, true) * Math.PI / 32767, sz = v.getInt16(58, true) * Math.PI / 32767, a = Math.hypot(sx, sz);
+    const swing = a > 1e-9 ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(sx / a, 0, sz / a), a) : new THREE.Quaternion();
+    const tw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), v.getInt16(60, true) * Math.PI * 2 / 65536);
+    m.quaternion.copy(swing.multiply(tw));
+    const code = v.getUint32(94, true);
+    m.scale.set(...[0, 10, 20].map((sh) => 2 ** ((((code >> sh) & 1023) - 512) / 64)));
+  }
+  S.entities = nodes.size;
+  const p = lastPos.get(gid), moved = !p || Math.hypot(p[0] - x, p[1] - y, p[2] - z) > 0.01;
+  if (moved) { lastPos.set(gid, [x, y, z]); log(`entity ${gid} at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`); }
+}
+
+async function main() {
+  const info = await (await fetch("/connection")).json();
+  S.step = "connecting"; say(); log(`connecting to the relay on port ${info.wt_port}, room ${room}`);
+  wt = new WebTransport(`https://127.0.0.1:${info.wt_port}/room/${room}`, { serverCertificateHashes: [{ algorithm: "sha-256", value: new Uint8Array(info.cert_sha256) }] });
+  await wt.ready; log("WebTransport open", "ok");
+  wt.closed.then(() => log("connection closed", "w"), (e) => log("connection lost: " + e, "e"));
+  await login();
+  S.step = "in the room"; say(); log("in the room, listening for poses");
+  const r = wt.datagrams.readable.getReader();
+  for (;;) { const { value, done } = await r.read(); if (done) break; onPacket(value); }
+}
+(function loop() { renderer.render(scene, camera); say(); requestAnimationFrame(loop); })();
+main().catch((e) => { S.error = String(e); say(); log("stopped: " + e, "e"); });
+</script>

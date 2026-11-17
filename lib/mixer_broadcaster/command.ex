@@ -23,6 +23,23 @@ defmodule MixerBroadcaster.Command do
   @inline_max 77
   @max_bulk 0xFFFFFF
 
+  @index_mark "mixer-index:"
+
+  @doc """
+  Data over `@max_bulk` bytes does not go in the chunk store whole: the sender chunks it with desync and the packet
+  names the index (mode 2: the SHA-256 of the desync index, as a mesh is named). The relay never reads that data, so
+  inside it a mode 2 command is carried as `index(digest, key)`: this marker, the 32 byte digest and the sender's key
+  (the key came from the data, which the relay never sees, and must survive so a newer command still replaces an older one). `pack/5` turns the
+  marker back into mode 2, and `unpack/2` makes it from mode 2.
+  """
+  @spec index(<<_::256>>, non_neg_integer()) :: binary()
+  def index(<<_::binary-size(32)>> = digest, key) when key in 0..0xFFFFFFFF,
+    do: <<@index_mark, digest::binary, key::little-32>>
+
+  @spec index?(binary()) :: boolean()
+  def index?(<<@index_mark, _::binary-size(32), _::little-32>>), do: true
+  def index?(_), do: false
+
   @spec size() :: pos_integer()
   def size, do: @size
   @spec inline_max() :: pos_integer()
@@ -61,8 +78,12 @@ defmodule MixerBroadcaster.Command do
       hlc < 0 or hlc >= Bitwise.bsl(1, 64) ->
         {:error, :bad_hlc}
 
+      index?(data) ->
+        <<@index_mark, digest::binary-size(32), key::little-32>> = data
+        {:ok, build(type, owner, hlc, key, <<2, digest::binary>>, 33)}
+
       byte_size(data) <= @inline_max ->
-        {:ok, build(type, owner, hlc, data, <<0, data::binary>>, 1 + byte_size(data))}
+        {:ok, build(type, owner, hlc, key(type, data), <<0, data::binary>>, 1 + byte_size(data))}
 
       byte_size(data) > @max_bulk ->
         {:error, :too_large}
@@ -74,14 +95,22 @@ defmodule MixerBroadcaster.Command do
 
   defp bulk(type, owner, hlc, data, <<digest::binary-size(32)>>),
     do:
-      {:ok, build(type, owner, hlc, data, <<1, digest::binary, byte_size(data)::little-24>>, 36)}
+      {:ok,
+       build(
+         type,
+         owner,
+         hlc,
+         key(type, data),
+         <<1, digest::binary, byte_size(data)::little-24>>,
+         36
+       )}
 
   defp bulk(_, _, _, _, _), do: {:error, :bad_digest}
 
-  defp build(type, owner, hlc, data, run, used) do
+  defp build(type, owner, hlc, key, run, used) do
     <<a::binary-size(36), b::binary-size(42)>> = pad(run, @run)
 
-    <<key(type, data)::little-32, a::binary, hlc::little-64,
+    <<key::little-32, a::binary, hlc::little-64,
       Bitwise.bor(Bitwise.bsl(@class, 24), owner)::little-32,
       Bitwise.bor(Bitwise.bsl(used, 16), type)::little-32, b::binary, 0, 0>>
   end
@@ -130,6 +159,9 @@ defmodule MixerBroadcaster.Command do
       _ -> {:error, :missing_bulk}
     end
   end
+
+  defp body(<<2, digest::binary-size(32), _::binary>>, 33, meta, _fetch),
+    do: {:ok, Map.put(meta, :data, index(digest, meta.key))}
 
   defp body(_, _, _, _), do: {:error, :bad_body}
 end

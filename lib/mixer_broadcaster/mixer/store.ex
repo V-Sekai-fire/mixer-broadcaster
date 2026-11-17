@@ -207,7 +207,14 @@ defmodule MixerBroadcaster.Mixer.Store do
     @impl true
     def put(data) do
       digest = :crypto.hash(:sha256, data)
-      _ = request("PUT", digest, data)
+
+      # A blob is named by its bytes, so one already stored is not written again: SeaweedFS keeps what an overwrite
+      # replaces until a vacuum, so a relay that forwards one command to many players would fill the disk.
+      case request("HEAD", digest, "") do
+        {:ok, {{_, 200, _}, _, _}} -> :ok
+        _ -> request("PUT", digest, data)
+      end
+
       digest
     end
 

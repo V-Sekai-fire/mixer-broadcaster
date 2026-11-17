@@ -75,7 +75,7 @@ defmodule MixerBroadcaster.Hub do
 
       {:pass, state} ->
         {state, reply} = handle_message(data, state)
-        {:ok, state, datagram_for(reply)}
+        {:ok, state, datagram_replies(reply)}
     end
   end
 
@@ -118,6 +118,18 @@ defmodule MixerBroadcaster.Hub do
   defp datagram_for("{\"t\":\"snapshot\"" <> _ = snapshot), do: [{:send_datagram, snapshot}]
   defp datagram_for(_), do: []
 
+  # A request that came as a datagram is answered as datagrams: a client such as Godot's `WebTransportPeer` reads no
+  # reply from a bidi stream. A pose's "ok" is dropped (it would answer every packet), and a mesh reply too big for one
+  # datagram is cut into several (`Mesh.split/1`).
+  defp datagram_replies(~s({"t":"ok"})), do: []
+  defp datagram_replies(~s({"t":"error","reason":"bad_packet"})), do: []
+
+  # Any JSON reply goes through Mesh.split: it leaves a short or non-mesh reply as it is. (The match used to be on the
+  # prefix `{"t":"mesh"`, but a mesh reply is encoded with "index" first, so the cut never ran and a reply of many chunk
+  # URLs went out as one datagram the transport refused, `datagram_too_large`.)
+  defp datagram_replies("{" <> _ = reply), do: Enum.map(Mesh.split(reply), &{:send_datagram, &1})
+  defp datagram_replies(_), do: []
+
   defp handle_message(data, %{admitted: false} = state), do: gate(data, state)
 
   # A pose: exactly one 100-byte entity packet. The relay stamps its clock and forwards it to the room.
@@ -126,7 +138,7 @@ defmodule MixerBroadcaster.Hub do
     with true <- Packet.valid?(pkt),
          {:ok, word} <- Clock.stamp(Packet.hlc(pkt)) do
       stamped = Packet.put_hlc(pkt, word)
-      Rooms.put_entity(room, stamped)
+      keep(room, stamped)
       relay(room, stamped)
       {state, ~s({"t":"ok"})}
     else
@@ -156,6 +168,21 @@ defmodule MixerBroadcaster.Hub do
         {state, ~s({"t":"error","reason":"bad_message"})}
     end
   end
+
+  # An ENTITY_REMOVE command (type 211, inline, the entity's id as its first four bytes) takes the entity out of the
+  # room's stored content and is not stored itself: every remove shares one command key, so keeping them would let
+  # each replace the last, and a player who joins late would be replayed a remove for an entity it never heard of.
+  # Everything else is stored by its id, the newest replacing the older.
+  defp keep(
+         room,
+         <<_::binary-size(4), 0, gid::little-32, _::binary-size(42), 128, 211::little-16,
+           _::binary>> = pkt
+       ) do
+    used = Bitwise.bsr(:binary.decode_unsigned(binary_part(pkt, 52, 4), :little), 16)
+    if used >= 5, do: Rooms.delete_entity(room, gid)
+  end
+
+  defp keep(room, pkt), do: Rooms.put_entity(room, pkt)
 
   # Before admission: only `hello` (answered with a nonce) and `auth` are understood. Every refusal looks the
   # same to the client; after `three` attempts the session stays locked.
