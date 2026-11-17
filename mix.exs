@@ -38,6 +38,8 @@ defmodule MixerBroadcaster.MixProject do
       {:yaml_elixir, "~> 2.11", only: :test},
       {:ex_json_schema, "~> 0.10", only: :test},
       {:mox, "~> 1.2", only: :test},
+      # Runs the Python reference scripts as they are, before they are ported to Elixir (one uv config per app: config/config.exs)
+      {:pythonx, "~> 0.4", only: :test},
       # Static analysis: `mix dialyzer`
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
