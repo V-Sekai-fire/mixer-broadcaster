@@ -96,6 +96,19 @@ its matrix cross a frame alike, golden points per engine, a left-handed mesh ren
 
 The wire has one frame (right-handed, X right, Y up, -Z forward, metres), now stated in `info.description` of the spec. `pose_entity` takes wire values only (`quat_xyzw`), and `to_wire_point` and `to_wire_quat`, which converted from Blender's frame, are removed from `entity.py`; conversion from any other frame lives in `frames.py` and is done by the client before it builds a packet.
 
+## Headless reference consumer, room state (#32)
+
+`clients/python/mixer/broadcaster/room_state.py` computes what a room holds from the packets a client hears: count, digest,
+and per zone the count, the bounding box of positions (micrometres) and a digest. A zone is a square cell on X and Z; the
+wire has no zone field, so the size is the consumer's parameter (default 16 m). `tests/hypo/test_room_state.py` has GOLDEN
+(two zones, a fixed box and digest, an ENTITY_REMOVE), INVARIANT (order and repeats do not matter, zones partition the room,
+the relay's clock is not in a digest) and CONTROL (an empty client, one change moves one zone digest, a last-heard-wins
+consumer differs, ragged input refused). Planting last-heard-wins in `apply` fails two tests; putting the clock in the
+digest fails two. Read back from a real relay: the 60 packets a late joiner was replayed in the stroke spike give count 60.
+
+Not done: joining a room from Python (the existing client speaks `/mixer`, not `/room/<name>`, and enrolls with its own key
+rather than the shared guest ELF), fetching meshes by digest, and a bounding box of meshes. The issue stays open for those.
+
 ## Relay spike: what one player builds, every player sees (#34)
 
 `test/stroke_spike_test.exs` joins three headless pens to one closed room over HTTP/3 WebTransport; each publishes 20

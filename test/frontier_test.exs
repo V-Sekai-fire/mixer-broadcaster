@@ -36,9 +36,14 @@ defmodule MixerBroadcaster.FrontierTest do
   @n String.to_integer(System.get_env("FRONTIER_N") || "8")
 
   setup :set_mox_global
+  @typep doc :: map()
+  @typep relay :: %{required(atom()) => term()}
+  @typep client :: %{required(atom()) => term()}
+  @typep outs :: [{String.t(), term()}]
 
   # ---------------------------------------------------------------- the ledger
 
+  @spec ledger_put(String.t(), boolean(), String.t() | nil) :: :ok
   defp ledger_put(level, ok, reason),
     do:
       Agent.update(
@@ -47,6 +52,7 @@ defmodule MixerBroadcaster.FrontierTest do
       )
 
   # one problem; never raises
+  @spec attempt(String.t(), (-> term())) :: :ok
   defp attempt(level, fun) do
     result =
       try do
@@ -61,6 +67,7 @@ defmodule MixerBroadcaster.FrontierTest do
     ledger_put(level, elem(result, 0), elem(result, 1))
   end
 
+  @spec run_level(String.t(), pos_integer(), (non_neg_integer() -> term())) :: :ok
   defp run_level(level, n, fun) do
     for i <- 0..(n - 1), do: attempt(level, fn -> fun.(i) end)
     :ok
@@ -68,25 +75,31 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # ---------------------------------------------------------------- the document
 
+  @spec resolve(doc(), String.t()) :: map()
   defp resolve(doc, pointer),
     do: ExJsonSchema.Schema.resolve(%{"$ref" => pointer, "components" => doc["components"]})
 
+  @spec fits?(doc(), String.t(), term()) :: boolean()
   defp fits?(doc, schema, value),
     do: ExJsonSchema.Validator.valid?(resolve(doc, "#/components/schemas/#{schema}"), value)
 
+  @spec fits_payload?(doc(), String.t(), term()) :: boolean()
   defp fits_payload?(doc, name, value),
     do:
       ExJsonSchema.Validator.valid?(resolve(doc, "#/components/messages/#{name}/payload"), value)
 
+  @spec must_fit(doc(), String.t(), term()) :: term()
   defp must_fit(doc, schema, value) do
     if not fits?(doc, schema, value), do: flunk("#{inspect(value)} does not fit #{schema}")
     value
   end
 
+  @spec wire_messages(doc(), String.t()) :: [{String.t(), map()}]
   defp wire_messages(doc, from),
     do:
       for({n, m} <- doc["components"]["messages"], w = m["x-wire"], w["from"] == from, do: {n, w})
 
+  @spec message(doc(), String.t()) :: map()
   defp message(doc, name), do: doc["components"]["messages"][name]
 
   defp enc("string", v), do: Wire.string(v)
@@ -102,6 +115,7 @@ defmodule MixerBroadcaster.FrontierTest do
   defp dec("bytes", bin), do: {Base.encode16(bin, case: :lower), <<>>}
 
   # a command packet from the document's own words
+  @spec pack(doc(), String.t(), map()) :: binary()
   defp pack(doc, name, payload) do
     w = message(doc, name)["x-wire"]
     data = for [f, kind] <- w["fields"], into: <<>>, do: enc(kind, payload[f])
@@ -110,6 +124,7 @@ defmodule MixerBroadcaster.FrontierTest do
   end
 
   # a relay packet, read by the document: its message name and payload, checked against the payload schema
+  @spec read_packet(doc(), binary()) :: {String.t(), term()}
   defp read_packet(doc, pkt) do
     {:ok, %{type: type, data: data}} = Command.unpack(pkt, &Store.get/1)
     all = wire_messages(doc, "server")
@@ -166,6 +181,7 @@ defmodule MixerBroadcaster.FrontierTest do
     %{pub: pub, priv: priv, token: full}
   end
 
+  @spec b64(binary()) :: String.t()
   defp b64(b), do: Base.url_encode64(b, padding: false)
 
   defp recv_fin(session, stream, acc \\ <<>>, timeout \\ 4_000) do
@@ -228,10 +244,12 @@ defmodule MixerBroadcaster.FrontierTest do
     {s, p}
   end
 
+  @spec room_name(non_neg_integer()) :: String.t()
   defp room_name(i), do: "f#{i}-#{System.unique_integer([:positive])}"
 
   # ---------------------------------------------------------------- the levels
 
+  @spec level_room_door(doc(), relay(), non_neg_integer()) :: term()
   defp level_room_door(doc, relay, i) do
     room = room_name(i)
     p = player(relay, [room])
@@ -242,6 +260,7 @@ defmodule MixerBroadcaster.FrontierTest do
     Client.close(s)
   end
 
+  @spec level_refusals(doc(), relay(), non_neg_integer()) :: term()
   defp level_refusals(doc, relay, i) do
     room = room_name(i)
 
@@ -287,6 +306,7 @@ defmodule MixerBroadcaster.FrontierTest do
     end
   end
 
+  @spec denied?(doc(), term(), map(), String.t()) :: boolean()
   defp denied?(doc, s, p, room) do
     %{"nonce" => n} = ask(s, %{t: "hello"})
     sig = Auth.sign(p.priv, room, Base.url_decode64!(n, padding: false))
@@ -301,6 +321,7 @@ defmodule MixerBroadcaster.FrontierTest do
     e["reason"] == "denied"
   end
 
+  @spec level_chart(doc(), relay(), non_neg_integer()) :: term()
   defp level_chart(doc, relay, i) do
     room = room_name(i)
     {a, _} = admitted_in_room(doc, relay, room)
@@ -326,11 +347,13 @@ defmodule MixerBroadcaster.FrontierTest do
     for s <- [a, b, c], do: Client.close(s)
   end
 
+  @spec pose_bytes(non_neg_integer(), binary(), non_neg_integer()) :: binary()
   defp pose_bytes(gid, digest \\ <<0::256>>, class \\ 0),
     do:
       <<gid::little-32, 0::unit(8)-size(44), 0::little-24, class, 0::unit(8)-size(10),
         digest::binary, 0::48>>
 
+  @spec level_pose(doc(), relay(), non_neg_integer()) :: term()
   defp level_pose(doc, relay, i) do
     room = room_name(i)
     {a, _} = admitted_in_room(doc, relay, room)
@@ -353,6 +376,7 @@ defmodule MixerBroadcaster.FrontierTest do
     for s <- [a, b, c], do: Client.close(s)
   end
 
+  @spec level_mesh(doc(), relay(), non_neg_integer()) :: term()
   defp level_mesh(doc, relay, i) do
     stub(MixerBroadcaster.BlobMock, :object, fn _ -> {:ok, @cube} end)
 
@@ -394,6 +418,7 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # --- commands over a real stream
 
+  @spec commander(doc(), relay(), [String.t()]) :: client()
   defp commander(doc, relay, rooms) do
     p = player(relay, rooms)
     s = connect(relay, "/mixer")
@@ -401,11 +426,13 @@ defmodule MixerBroadcaster.FrontierTest do
     %{session: s, p: p, stream: nil}
   end
 
+  @spec send_cmd(doc(), client(), String.t(), map() | nil) :: client()
   defp send_cmd(doc, c, name, payload \\ nil) do
     payload = payload || hd(message(doc, name)["examples"])["payload"]
     send_pkt(c, pack(doc, name, payload))
   end
 
+  @spec send_pkt(client(), binary()) :: client()
   defp send_pkt(%{stream: nil} = c, pkt) do
     {:ok, stream} = Client.send_reliable(c.session, pkt, fin: false)
     %{c | stream: stream}
@@ -426,12 +453,16 @@ defmodule MixerBroadcaster.FrontierTest do
     end
   end
 
+  @spec names(outs()) :: [String.t()]
   defp names(outs), do: for({n, _} <- outs, do: n)
+  @spec errors(outs()) :: [String.t()]
   defp errors(outs), do: for({"sendErrorOut", %{"message" => m}} <- outs, do: m)
 
+  @spec example(doc(), String.t(), map()) :: map()
   defp example(doc, name, over),
     do: hd(message(doc, name)["examples"])["payload"] |> Map.merge(over)
 
+  @spec level_commands(doc(), relay(), non_neg_integer()) :: term()
   defp level_commands(doc, relay, i) do
     room = room_name(i)
 
@@ -525,6 +556,7 @@ defmodule MixerBroadcaster.FrontierTest do
     s
   end
 
+  @spec level_late(doc(), relay(), non_neg_integer()) :: term()
   defp level_late(doc, relay, i) do
     room = room_name(i)
     {a, _} = admitted_in_room(doc, relay, room)
@@ -603,6 +635,7 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # --- departures, the door of the command path, short datagrams
 
+  @spec level_departures(doc(), relay(), non_neg_integer()) :: term()
   defp level_departures(doc, relay, i) do
     room = room_name(i)
 
@@ -658,6 +691,7 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # --- the client library, as the document describes a reply (on the same stream, with FIN)
 
+  @spec level_client(doc(), relay(), non_neg_integer()) :: term()
   defp level_client(doc, relay, i) do
     s = connect(relay, "/room/#{room_name(i)}")
 
@@ -678,6 +712,7 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # --- the demo's HTTP routes, over a real HTTP server
 
+  @spec http(:inet.port_number(), String.t()) :: {non_neg_integer(), map(), String.t()}
   defp http(port, path) do
     :inets.start()
     url = String.to_charlist("http://127.0.0.1:#{port}#{path}")
@@ -691,6 +726,7 @@ defmodule MixerBroadcaster.FrontierTest do
     end
   end
 
+  @spec level_http(doc(), :inet.port_number(), non_neg_integer()) :: term()
   defp level_http(doc, port, i) do
     case rem(i, 6) do
       0 ->
@@ -720,6 +756,7 @@ defmodule MixerBroadcaster.FrontierTest do
 
   # --- configuration and origins
 
+  @spec level_config(doc(), relay(), non_neg_integer()) :: term()
   defp level_config(doc, relay, i) do
     case i do
       0 ->
@@ -761,6 +798,7 @@ defmodule MixerBroadcaster.FrontierTest do
     }
 
   # a planted wrong reply must fail the checker
+  @spec control_fails(doc()) :: :ok
   defp control_fails(doc) do
     for {schema, bad} <- [
           {"ok", %{"t" => "ok", "extra" => 1}},
@@ -774,6 +812,170 @@ defmodule MixerBroadcaster.FrontierTest do
     assert_raise ExUnit.AssertionError, fn -> flunk("planted") end
     :ok
   end
+
+  # ---------------------------------------------------------------- the open issues
+  # One level per open issue of the repository. A problem is one check of what the issue asks for, so the level is
+  # n/n when the issue is done and below n/n while it is open. Issue levels are listed in the report and do not fail
+  # the run (the run would stay red for every open issue); a level that was n/n and drops is a regression, read it in
+  # the table. Issues with no headless problem yet are named in `@unmeasured_issues`.
+  @root Path.join(__DIR__, "..")
+  @unmeasured_issues %{
+    15 => "needs the Wings3D, Godot and Babylon.js windows open together",
+    28 =>
+      "needs #27 first; its problems are the room-state invariant against the headless reference (#32)",
+    30 =>
+      "the guest lives in interactor-solidcraft-guest; the check is a script here that publishes a solid"
+  }
+
+  @spec root_files(String.t()) :: [Path.t()]
+  defp root_files(glob), do: Path.wildcard(Path.join(@root, glob))
+
+  @spec root_read(String.t()) :: String.t()
+  defp root_read(glob),
+    do: root_files(glob) |> Enum.map_join("\n", &File.read!/1)
+
+  @spec level_issue(pos_integer(), map(), map(), non_neg_integer()) :: :ok | no_return()
+  defp level_issue(10, doc, _relay, i) do
+    names = doc["components"]["messages"] |> Map.keys() |> Enum.map(&String.downcase/1)
+
+    needle = Enum.at(~w(skeleton bone shape skin), rem(i, 4))
+    assert Enum.any?(names, &(&1 =~ needle)), "the document has no #{needle} message"
+  end
+
+  defp level_issue(11, doc, relay, i) do
+    room = room_name(i)
+    a = commander(doc, relay, [room])
+    a = send_cmd(doc, a, "joinRoom", example(doc, "joinRoom", %{"room" => room}))
+    drain(doc, a)
+    a = send_cmd(doc, a, "setRoomKeepOpen", %{"room" => room, "keep_open" => true})
+    drain(doc, a)
+    a = send_cmd(doc, a, "leaveRoom")
+    drain(doc, a)
+    a = send_cmd(doc, a, "listRooms")
+    assert [%{"rooms" => on}] = for({"roomList", p} <- drain(doc, a), do: p)
+    assert Map.has_key?(on, room), "the keep-open room did not outlive its last player"
+    a = send_cmd(doc, a, "setRoomKeepOpen", %{"room" => room, "keep_open" => false})
+    drain(doc, a)
+    a = send_cmd(doc, a, "listRooms")
+    assert [%{"rooms" => off}] = for({"roomList", p} <- drain(doc, a), do: p)
+    refute Map.has_key?(off, room), "keep open turned off, nobody inside, and the room stays"
+    Client.close(a.session)
+  end
+
+  defp level_issue(13, _doc, _relay, i) do
+    py = root_read("clients/python/mixer/**/*.py")
+
+    case rem(i, 3) do
+      0 ->
+        users =
+          for f <- root_files("clients/python/mixer/**/*.py"),
+              Path.basename(f) != "texture.py",
+              File.read!(f) =~ ~r/texture\.encode|from .*texture import/,
+              do: f
+
+        assert users != [], "nothing calls texture.encode from the upload path"
+
+      1 ->
+        assert root_read("clients/python/tests/**/*.py") =~ ~r/check_ktx2/,
+               "no test calls check_ktx2"
+
+      2 ->
+        assert py =~ ~r/UASTC|XUASTC/ and py =~ ~r/ETC1S|BasisLZ/,
+               "the codec rules are not written"
+    end
+  end
+
+  defp level_issue(14, _doc, _relay, i) do
+    case rem(i, 2) do
+      0 -> assert File.read!(Path.join(@root, "clients/godot/main.gd")) =~ ~r/retry|attempt/i
+      1 -> assert root_files("test/godot_mint_retry*") != [], "no test of the token retry"
+    end
+  end
+
+  defp level_issue(16, _doc, _relay, _i) do
+    nodes =
+      for f <- root_files("clients/godot/*.gd"),
+          t = File.read!(f),
+          t =~ ~r/class_name\s+\w*Room/ and not (t =~ ~r/Camera3D\.new|Camera3D/),
+          do: f
+
+    assert nodes != [], "no room node that takes a parent Node3D and builds no camera"
+  end
+
+  defp level_issue(26, _doc, _relay, i) do
+    page = root_files("clients/babylon/*.html")
+    assert page != [], "no clients/babylon page"
+
+    case rem(i, 2) do
+      0 -> assert File.read!(hd(page)) =~ "9.37.0"
+      1 -> assert File.read!(hd(page)) =~ ~r/WebTransport/
+    end
+  end
+
+  defp level_issue(27, _doc, _relay, i) do
+    mods = root_files("clients/wings/**/*.erl")
+    assert mods != [], "no Wings plugin module"
+
+    case rem(i, 2) do
+      0 -> assert root_read("clients/wings/**/*.erl") =~ ~r/wings_plugin|menu/
+      1 -> assert root_read("clients/wings/**/*.erl") =~ ~r/mixer_auth|auth_sign/
+    end
+  end
+
+  defp level_issue(29, _doc, _relay, i) do
+    {glob, what} =
+      Enum.at(
+        [
+          {"README.md", "the README"},
+          {"spec/asyncapi.yaml", "the document"},
+          {"CHANGELOG.md", "the changelog"},
+          {"lib/**/*.ex", "lib"},
+          {"clients/**/*.{py,gd,md}", "clients"}
+        ],
+        rem(i, 5)
+      )
+
+    assert not (root_read(glob) =~ ~r/blender|bpy/i), "#{what} still names Blender"
+  end
+
+  defp level_issue(31, _doc, _relay, _i),
+    do: assert(root_files("clients/gltf-bridge/*") != [], "no clients/gltf-bridge")
+
+  defp level_issue(32, _doc, _relay, i) do
+    py = root_read("clients/python/mixer/broadcaster/room_state.py")
+
+    case rem(i, 3) do
+      0 -> assert py =~ "def state_of"
+      1 -> assert py =~ ~r/bound|bbox|aabb/i, "no bounding boxes in the room state"
+      2 -> assert py =~ ~r/digest/, "no digest per zone"
+    end
+  end
+
+  defp level_issue(37, _doc, _relay, i) do
+    case rem(i, 2) do
+      0 ->
+        assert root_files("test/godot_mint_retry_test.exs") != [],
+               "no ExUnit port of the token-retry script"
+
+      1 ->
+        refute File.read!(Path.join(@root, "mix.exs")) =~ "pythonx",
+               "Pythonx is still a dependency"
+    end
+  end
+
+  @issue_levels [
+    {10, 4},
+    {11, 3},
+    {13, 3},
+    {14, 2},
+    {16, 2},
+    {26, 2},
+    {27, 2},
+    {29, 5},
+    {31, 1},
+    {32, 3},
+    {37, 2}
+  ]
 
   # ---------------------------------------------------------------- the run
 
@@ -805,9 +1007,17 @@ defmodule MixerBroadcaster.FrontierTest do
     run_level("10 departures and the command door", @n, &level_departures(doc, relay, &1))
     run_level("11 the client library", 4, &level_client(doc, relay, &1))
 
+    for {issue, n} <- @issue_levels do
+      run_level("issue ##{issue}", n, &level_issue(issue, doc, relay, &1))
+    end
+
+    for {issue, why} <- @unmeasured_issues,
+        do: IO.puts("issue ##{issue} unmeasured: #{why}")
+
     report(Agent.get(:frontier_ledger, & &1))
   end
 
+  @spec report(%{String.t() => [{boolean(), String.t() | nil}]}) :: :ok | no_return()
   defp report(ledger) do
     rows =
       for {level, runs} <- ledger do
@@ -840,7 +1050,7 @@ defmodule MixerBroadcaster.FrontierTest do
       )
     )
 
-    failing = for {l, s, n, _, _} <- rows, s < n, do: l
+    failing = for {l, s, n, _, _} <- rows, s < n, not String.starts_with?(l, "issue #"), do: l
     assert failing == [], "levels below n/n: #{inspect(failing)}"
   end
 end
