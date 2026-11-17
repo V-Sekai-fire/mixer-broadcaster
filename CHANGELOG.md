@@ -95,3 +95,21 @@ its frame is the wire's and takes a `mesh_frame` for meshes. Tests: round trip f
 its matrix cross a frame alike, golden points per engine, a left-handed mesh renders the same as the wire's, and the winding control.
 
 The wire has one frame (right-handed, X right, Y up, -Z forward, metres), now stated in `info.description` of the spec. `pose_entity` takes wire values only (`quat_xyzw`), and `to_wire_point` and `to_wire_quat`, which converted from Blender's frame, are removed from `entity.py`; conversion from any other frame lives in `frames.py` and is done by the client before it builds a packet.
+
+## Relay spike: what one player builds, every player sees (#34)
+
+`test/stroke_spike_test.exs` joins three headless pens to one closed room over HTTP/3 WebTransport; each publishes 20
+strokes at the same time (a stroke is a 744-byte mesh named by its digest, posed as a 100-byte entity). A fourth client
+joins after the strokes and a fifth sits in another room. Five rounds, 300 strokes.
+
+Result: every pen ended with 60 entities at the publisher's poses, the late joiner saw all 60, the outsider saw none.
+Time from a stroke leaving a pen to the last pen holding it: median 0.62 ms, worst 11.09 ms (loopback, so this is the
+relay's own cost). Bytes per stroke through the relay: 100 up, 200 down to the two other pens, 100 more to a late joiner.
+
+Failed first: the same test with `MB_LOSS=0.3` fails in round 1 (a pen never receives 16 of the other pens' strokes), so
+a live stroke is a datagram that can be lost, and only a late join replays it (three times). The check bites.
+
+Not measured: the Wings3D, Godot and Babylon.js clients (#26, #27 are unbuilt; the pens here are Elixir), mesh bytes
+fetched through S3, and per-room entity limits. Nothing in the run argues for a per-room entity limit at 60 entities or
+for a pen-specific packet: a stroke fits the existing 100-byte packet by digest.
+
