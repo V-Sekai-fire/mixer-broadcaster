@@ -176,7 +176,10 @@ defmodule MixerBroadcaster.PacketHlcTest do
     Rooms.put_entity(room, pose.(1, 100))
     Rooms.put_entity(room, pose.(2, 200))
     {:ok, late} = Hub.init(nil, %{path: "/room/#{room}"}, [])
-    assert {:ok, late, [{:send_datagram, _}]} = Hub.handle_info({:relay, spawn(fn -> :ok end), pose.(1, 150)}, late)
+
+    assert {:ok, late, [{:send_datagram, _}]} =
+             Hub.handle_info({:relay, spawn(fn -> :ok end), pose.(1, 150)}, late)
+
     assert {:ok, _, sends} = Hub.handle_info({:replay, 1}, late)
     assert for({:send_datagram, <<gid::little-32, _::binary>>} <- sends, do: gid) == [2]
   end

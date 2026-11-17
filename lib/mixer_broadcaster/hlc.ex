@@ -8,7 +8,6 @@ defmodule MixerBroadcaster.Hlc do
   matches rule for rule. A counter that would pass 16 bits is refused, never wrapped: a wrapped counter puts
   a later event before an earlier one.
   """
-  import Bitwise
 
   @c_max 0xFFFF
   @l_max Bitwise.bsl(1, 48) - 1
