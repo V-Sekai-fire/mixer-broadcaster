@@ -9,6 +9,7 @@ pytest = "*"
 hypothesis = "*"
 aioquic = "*"
 numpy = "*"
+cryptography = "*"
 
 # Mitsuba 3 is not on conda-forge; pixi installs it from PyPI.
 [pypi-dependencies]

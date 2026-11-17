@@ -126,3 +126,17 @@ Not measured: the Wings3D, Godot and Babylon.js clients (#26, #27 are unbuilt; t
 fetched through S3, and per-room entity limits. Nothing in the run argues for a per-room entity limit at 60 entities or
 for a pen-specific packet: a stroke fits the existing 100-byte packet by digest.
 
+## Headless reference consumer joins a room (#32)
+
+`clients/python/mixer/broadcaster/room_join.py` passes the closed relay's door from Python (`open_relay` takes a path, so the
+session is `/room/<name>`; the proof is `"mixer-relay-v1"` || room length || room || nonce, ECDSA P-256, 64 bytes r || s) and
+returns the room state of what the relay replays. `test/python_room_join_test.exs` runs the Python tool against a real relay:
+7 strokes published from Elixir, Python reads 7 entities, and its digest equals one computed here from `Rooms.entities/1`
+(three rounds). Controls: a token for another room is refused (exit 2); an empty room reads 0; a digest that keeps the relay's
+clock differs. Planting `mixer-relay-v2` in the proof fails the test at the door; putting the clock in Python's digest fails it
+on the digest. `tests/hypo/test_room_join.py` checks the proof offline. The Elixir test needs `MB_PYTHON` (a Python with
+`aioquic` and `cryptography`) and is skipped without it, so the hosted mix jobs skip it.
+
+Not done: fetching meshes by digest and checking the desync index, enrolling through the shared guest ELF, a bounding box of
+meshes, and the optional Mitsuba image.
+
