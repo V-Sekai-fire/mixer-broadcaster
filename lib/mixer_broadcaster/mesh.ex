@@ -50,8 +50,16 @@ defmodule MixerBroadcaster.Mesh do
     end
   end
 
+  # The first piece carries the index URL, which is long: it takes chunk URLs only while the whole piece still fits the
+  # budget, and none at all when the index URL alone leaves no room (the later pieces carry them).
   defp take(urls, head, budget) do
-    fit(urls, [], byte_size(JSON.encode!(Map.put(head, "chunks", []))), budget)
+    size = byte_size(JSON.encode!(Map.put(head, "chunks", [])))
+    {part, rest} = fit(urls, [], size, budget)
+
+    case part do
+      [first | _] when size + byte_size(first) + 3 > budget -> {[], urls}
+      _ -> {part, rest}
+    end
   end
 
   defp more([], _digest, _from, _budget), do: []

@@ -124,10 +124,10 @@ defmodule MixerBroadcaster.Hub do
   defp datagram_replies(~s({"t":"ok"})), do: []
   defp datagram_replies(~s({"t":"error","reason":"bad_packet"})), do: []
 
-  defp datagram_replies("{\"t\":\"mesh\"" <> _ = reply),
-    do: Enum.map(Mesh.split(reply), &{:send_datagram, &1})
-
-  defp datagram_replies("{" <> _ = reply), do: [{:send_datagram, reply}]
+  # Any JSON reply goes through Mesh.split: it leaves a short or non-mesh reply as it is. (The match used to be on the
+  # prefix `{"t":"mesh"`, but a mesh reply is encoded with "index" first, so the cut never ran and a reply of many chunk
+  # URLs went out as one datagram the transport refused, `datagram_too_large`.)
+  defp datagram_replies("{" <> _ = reply), do: Enum.map(Mesh.split(reply), &{:send_datagram, &1})
   defp datagram_replies(_), do: []
 
   defp handle_message(data, %{admitted: false} = state), do: gate(data, state)

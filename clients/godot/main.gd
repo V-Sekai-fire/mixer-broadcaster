@@ -96,6 +96,8 @@ func _http(method: int, url: String, body := "", headers := PackedStringArray())
 		return PackedByteArray()
 	var res: Array = await r.request_completed
 	r.queue_free()
+	if res[1] != 200:
+		_log("http %s: result %d status %d" % [url, res[0], res[1]], "red")
 	return res[3] if res[1] == 200 else PackedByteArray()
 
 func _b64u(b: PackedByteArray) -> String:
@@ -210,6 +212,8 @@ func _process(delta: float) -> void:
 			_on_pose(b)
 		elif b.size() > 0 and b[0] == 123:
 			var j: Variant = JSON.parse_string(b.get_string_from_utf8())
+			if OS.get_environment("MB_DEBUG") != "":
+				_log("datagram %d bytes t=%s" % [b.size(), str(j.get("t", "?")) if typeof(j) == TYPE_DICTIONARY else "unparsed"])
 			if typeof(j) == TYPE_DICTIONARY:
 				if j.has("patches") or j.get("t", "") == "snapshot":
 					pass  # the chart snapshot the relay sends to answer the keepalive: nobody asked for it

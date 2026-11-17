@@ -37,6 +37,24 @@ defmodule MixerBroadcaster.MeshTest do
     def presign_get(key, ttl), do: {:ok, "https://s3.test/#{key}?ttl=#{ttl}"}
   end
 
+  # a store whose one mesh has twelve chunks and whose presigned URLs are as long as S3's real ones (about 400 bytes)
+  defmodule ManyBlobs do
+    def ids, do: for(i <- 1..12, do: :crypto.hash(:sha256, <<i>>))
+
+    def index do
+      items = for id <- ids(), into: <<>>, do: <<1::little-64, id::binary>>
+
+      <<48::little-64, 0x96824D9C7B129FF9::little-64, 0::little-64, 0::little-64, 0::little-64,
+        0::little-64, 0xFFFFFFFFFFFFFFFF::little-64, 0xE75B9E112F17417D::little-64, items::binary,
+        0::little-128, 0::little-64>>
+    end
+
+    def object(_key), do: {:ok, index()}
+
+    def presign_get(key, ttl),
+      do: {:ok, "http://127.0.0.1:8333/mixer/" <> key <> "?" <> String.duplicate("X-Amz-Signature=ab&", 16) <> "ttl=#{ttl}"}
+  end
+
   # a store that answers the index key with another (valid) index
   defmodule SwappedBlobs do
     def object(_key) do
@@ -289,6 +307,24 @@ defmodule MixerBroadcaster.MeshTest do
     assert r["index"] =~ Caibx.index_key(@cube_digest)
   end
 
+  test "golden: a mesh of many chunks, asked by datagram, comes back as datagrams that each fit", c do
+    digest = :crypto.hash(:sha256, ManyBlobs.index())
+    pose(c.room, 1, digest)
+    Application.put_env(:mixer_broadcaster, :blob_access, ManyBlobs)
+    st = admitted(c, c.room, c.room, ["read"])
+
+    {_, replies} = dgram(st, %{t: "mesh", digest: Base.encode16(digest, case: :lower)})
+    assert length(replies) > 3, "twelve long URLs do not fit one datagram"
+    assert hd(replies)["t"] == "mesh" and Enum.all?(tl(replies), &(&1["t"] == "mesh_more"))
+    assert hd(replies)["n"] == 12
+    assert Enum.flat_map(replies, & &1["chunks"]) |> length() == 12
+
+    {:ok, _, out} =
+      Hub.handle_datagram(JSON.encode!(%{t: "mesh", digest: Base.encode16(digest, case: :lower)}), st)
+
+    assert Enum.all?(out, fn {:send_datagram, b} -> byte_size(b) <= 900 end)
+  end
+
   test "control: a pose sent as a datagram gets no reply, a refusal does", c do
     st = admitted(c, c.room, c.room, ["read"])
 
@@ -339,6 +375,33 @@ defmodule MixerBroadcaster.MeshTest do
           d = JSON.decode!(p),
           length(d["chunks"]) > 1,
           do: assert(byte_size(p) <= 900)
+    end
+  end
+
+  property "a real presigned reply, whose index URL is long, still has every piece within the datagram budget" do
+    # the index URL of a presigned reply is about 560 bytes and a chunk URL about 400: the first piece used to be forced
+    # to carry one chunk, went over the limit, and the relay dropped it ("too_large"), so a viewer got no answer at all
+    check all(
+            index_len <- integer(300..700),
+            url_len <- integer(250..450),
+            count <- integer(1..60)
+          ) do
+      urls = for i <- 1..count, do: String.pad_trailing("c#{i}-", url_len, "x")
+
+      reply =
+        JSON.encode!(%{
+          t: "mesh",
+          digest: String.duplicate("ab", 32),
+          expires: 300.0,
+          index: String.duplicate("i", index_len),
+          chunks: urls
+        })
+
+      pieces = Mesh.split(reply, 900)
+      assert Enum.all?(pieces, &(byte_size(&1) <= 900 or length(JSON.decode!(&1)["chunks"]) == 1))
+      assert byte_size(hd(pieces)) <= 900 or index_len > 600
+      [first | later] = Enum.map(pieces, &JSON.decode!/1)
+      assert first["chunks"] ++ Enum.flat_map(later, & &1["chunks"]) == urls
     end
   end
 
