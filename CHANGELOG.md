@@ -140,3 +140,27 @@ on the digest. `tests/hypo/test_room_join.py` checks the proof offline. The Elix
 Not done: fetching meshes by digest and checking the desync index, enrolling through the shared guest ELF, a bounding box of
 meshes, and the optional Mitsuba image.
 
+
+## The join handshake names the client's engine (#29)
+
+`joinRoom` carried `blender_version` and `generic_protocol`: every client had to give a Blender version to join, and the
+flag was the way out for the rest (the relay stored it and never read it). It now says what the client is, whatever it is:
+`room`, `engine`, `engine_version`, `mixer_version`, `ignore_version_check` (the spec, the relay, the Python client and its
+tools). A later joiner must speak the room's `mixer_version` and, when it names the same `engine` as the creator, have the
+same `engine_version`; clients of different engines are not compared on it. A room's attributes carry `engine` and
+`engine_version`.
+
+The earlier five-field layout is refused, not misread: `mixer_version` may not be empty, so the old bytes either run short or
+read as a join with an empty one. `test/mixer_core_test.exs` sends all four old payloads and checks that none makes a room.
+The rule itself is a property over engines, engine versions, protocol versions and the ignore flag (a joiner against a
+creator, 100 runs).
+
+Failed first: the new tests against the unchanged relay failed 6 of 40. With the engine check taken out of the relay, so that
+versions are compared across engines, the property, the golden and the control that must catch that rule all fail.
+`clients/python/tests/hypo/test_join_room.py` pins the bytes the client writes to the layout in the spec; swapping the engine
+and its version in the client fails 3 of its 4 tests. `mix test`: 197 passed (37 properties, 160 tests), 5 skipped. Frontier
+#29: 0/5 to 2/5 (the document and lib levels).
+
+Not done: the README, this changelog's earlier sections, the Python client's Blender message type names and its Blender frame
+table, and the Godot client's descriptions still name Blender, so the README, changelog and clients levels of #29 stay red.
+A client that sends the earlier layout is refused.

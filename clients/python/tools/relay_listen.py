@@ -19,12 +19,12 @@ PORT, CERT = int(os.environ["MB_PORT"]), os.environ["MB_CERT"]
 ROOM, SECONDS = sys.argv[1], float(sys.argv[2])
 
 
-def join_data(room, blender_version, mixer_version):
+def join_data(room, engine, engine_version, mixer_version):
     return (
         common.encode_string(room)
-        + common.encode_string(blender_version)
+        + common.encode_string(engine)
+        + common.encode_string(engine_version)
         + common.encode_string(mixer_version)
-        + common.encode_bool(False)
         + common.encode_bool(False)
     )
 
@@ -50,7 +50,9 @@ async def main():
                     if room and room.get(
                         "joinable"
                     ):  # join with the room's own versions, as a client that matches it would
-                        c.send_command(T.JOIN_ROOM, join_data(ROOM, room["blender_version"], room["mixer_version"]))
+                        c.send_command(
+                            T.JOIN_ROOM, join_data(ROOM, room["engine"], room["engine_version"], room["mixer_version"])
+                        )
                 if t == T.JOIN_ROOM and not joined:
                     joined = True
                     print("LISTEN joined", ROOM, flush=True)

@@ -739,8 +739,8 @@ defmodule MixerBroadcaster.AsyncApiTest do
 
     assert [m] = errors.(ask.("b", "joinRoom", %{"mixer_version" => "9"}))
     assert m =~ "Mixer version mismatch"
-    assert [m] = errors.(ask.("b", "joinRoom", %{"blender_version" => "4.0"}))
-    assert m =~ "Blender version mismatch"
+    assert [m] = errors.(ask.("b", "joinRoom", %{"engine_version" => "4.0"}))
+    assert m =~ "Engine version mismatch"
 
     # a late joiner gets the stored commands, in order, between clear_content and join_room
     ask.("a", "roomCommand", %{"type" => 150, "data" => "0a0b"})
@@ -859,9 +859,9 @@ defmodule MixerBroadcaster.AsyncApiTest do
         encode(doc, "joinRoom", hd(message(doc, "joinRoom")["examples"])["payload"]).data
       )
 
-    assert {:ok, "5.0.1", r} = Wire.read_string(r)
+    assert {:ok, "godot", r} = Wire.read_string(r)
+    assert {:ok, "4.8", r} = Wire.read_string(r)
     assert {:ok, "1.0", r} = Wire.read_string(r)
-    assert {:ok, false, r} = Wire.read_bool(r)
     assert {:ok, false, <<>>} = Wire.read_bool(r)
   end
 

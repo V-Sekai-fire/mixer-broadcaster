@@ -34,12 +34,13 @@ defmodule MixerBroadcaster.Mixer.CoreTest do
 
   defp cmd(type, data \\ <<>>), do: %{type: Wire.type(type), id: 0, data: data}
 
-  defp join(name, bv \\ "5.3", mv \\ "1.0"),
+  defp join(name, engine \\ "godot", engine_version \\ "4.8", mv \\ "1.0", ignore \\ false),
     do:
       cmd(
         :join_room,
         Wire.string(name) <>
-          Wire.string(bv) <> Wire.string(mv) <> Wire.bool(false) <> Wire.bool(false)
+          Wire.string(engine) <>
+          Wire.string(engine_version) <> Wire.string(mv) <> Wire.bool(ignore)
       )
 
   defp pose(gid, x),
@@ -58,10 +59,11 @@ defmodule MixerBroadcaster.Mixer.CoreTest do
   defp to(outs, id), do: for({^id, {t, d}} <- outs, do: {t, d})
   defp types(outs, id), do: outs |> to(id) |> Enum.map(&elem(&1, 0))
 
-  defp create(s, id, room) do
-    {s, _} = send_as(s, id, join(room))
-    {s, outs} = send_as(s, id, cmd(:content))
-    {s, outs}
+  defp create(s, id, room), do: create_as(s, id, join(room))
+
+  defp create_as(s, id, join_cmd) do
+    {s, _} = send_as(s, id, join_cmd)
+    send_as(s, id, cmd(:content))
   end
 
   test "golden: create, join with replay, forward, leave and delete" do
@@ -122,9 +124,9 @@ defmodule MixerBroadcaster.Mixer.CoreTest do
     {s2, _} = create(s, "a", "r")
     {_, outs} = send_as(s2, "a", join("other"))
     assert @send_error in types(outs, "a"), "a second join"
-    {_, outs} = send_as(s2, "b", join("r", "9.9"))
-    assert @send_error in types(outs, "b"), "a Blender version mismatch"
-    {_, outs} = send_as(s2, "b", join("r", "5.3", "9.9"))
+    {_, outs} = send_as(s2, "b", join("r", "godot", "9.9"))
+    assert @send_error in types(outs, "b"), "an engine version mismatch"
+    {_, outs} = send_as(s2, "b", join("r", "godot", "4.8", "9.9"))
     assert @send_error in types(outs, "b"), "a Mixer version mismatch"
     {_, outs} = send_as(s2, "b", pose(1, 1))
     assert outs == [], "a command from a client in no room goes nowhere"
@@ -136,6 +138,106 @@ defmodule MixerBroadcaster.Mixer.CoreTest do
     assert @send_error in types(outs, "a"), "a server command with no handler"
     {_, outs} = send_as(s2, "a", cmd(:entity_state, <<1, 2, 3>>))
     assert @send_error in types(outs, "a"), "a malformed pose"
+  end
+
+  # ---- the handshake names the client's own engine, whatever it is ----
+
+  defp rooms_of(s, id) do
+    {_, outs} = send_as(s, id, cmd(:list_rooms))
+    assert [{_, json}] = to(outs, id)
+    assert {:ok, rooms, _} = Wire.read_json(json)
+    rooms
+  end
+
+  # The rule the spec states: the protocol versions agree and, when both name the same engine, so do its versions.
+  # A room that was created asking to ignore versions takes anyone.
+  defp accepts?({engine, version, protocol, ignore}, {other, other_version, other_protocol}),
+    do: ignore or (protocol == other_protocol and (engine != other or version == other_version))
+
+  defp joined?(creator, joiner) do
+    {engine, version, protocol, ignore} = creator
+    {other, other_version, other_protocol} = joiner
+    s = world(~w(a b))
+    {s, _} = create_as(s, "a", join("r", engine, version, protocol, ignore))
+    {_, outs} = send_as(s, "b", join("r", other, other_version, other_protocol))
+    @send_error not in types(outs, "b")
+  end
+
+  defp rule_holds(rule) do
+    engine = member_of(~w(godot threejs wings3d))
+    version = member_of(~w(4.7 4.8))
+    protocol = member_of(~w(1.0 2.0))
+
+    check all(
+            creator <- tuple({engine, version, protocol, boolean()}),
+            joiner <- tuple({engine, version, protocol})
+          ) do
+      assert joined?(creator, joiner) == rule.(creator, joiner),
+             "creator #{inspect(creator)}, joiner #{inspect(joiner)}"
+    end
+  end
+
+  test "golden: a client of another engine joins whatever its version, and the room names the engine that made it" do
+    s = world(~w(a b c))
+    {s, _} = create_as(s, "a", join("r", "godot", "4.8"))
+    {s, outs} = send_as(s, "b", join("r", "threejs", "0.170"))
+    assert @join_room in types(outs, "b")
+    assert @send_error not in types(outs, "b")
+
+    assert %{"r" => attrs} = rooms_of(s, "c")
+
+    assert Map.take(attrs, ~w(engine engine_version mixer_version ignore_version_check)) == %{
+             "engine" => "godot",
+             "engine_version" => "4.8",
+             "mixer_version" => "1.0",
+             "ignore_version_check" => false
+           }
+
+    assert attrs |> Map.keys() |> Enum.sort() ==
+             ~w(byte_size command_count engine engine_version ignore_version_check joinable keep_open mixer_version),
+           "a room says what made it and nothing about any one tool"
+  end
+
+  property "invariant: a join is accepted when the protocol versions agree and, for one engine, its versions agree" do
+    rule_holds(&accepts?/2)
+  end
+
+  test "control: a rule that compares engine versions across engines is caught" do
+    earlier = fn {_, version, protocol, ignore}, {_, other_version, other_protocol} ->
+      ignore or (protocol == other_protocol and version == other_version)
+    end
+
+    assert_raise ExUnit.AssertionError, fn -> rule_holds(earlier) end
+  end
+
+  test "control: the five-field handshake of the earlier relay is refused, never misread" do
+    s = world(~w(a))
+
+    for ignore <- [false, true], generic <- [false, true] do
+      earlier =
+        Wire.string("r") <>
+          Wire.string("5.3") <> Wire.string("1.0") <> Wire.bool(ignore) <> Wire.bool(generic)
+
+      {s2, outs} = send_as(s, "a", cmd(:join_room, earlier))
+      assert @send_error in types(outs, "a"), "ignore #{ignore}, generic #{generic}"
+      assert s2.rooms == %{}, "no room is made from a misread join"
+    end
+  end
+
+  test "control: a join with no protocol version, or cut short, is refused" do
+    s = world(~w(a))
+    r = Wire.string("r")
+    engine = Wire.string("godot") <> Wire.string("4.8")
+
+    for data <- [
+          r <> engine <> Wire.string("") <> Wire.bool(false),
+          r <> engine <> Wire.string("1.0"),
+          r <> Wire.string("godot")
+        ] do
+      {s2, outs} = send_as(s, "a", cmd(:join_room, data))
+      assert @send_error in types(outs, "a")
+      assert s2.rooms == %{}
+    end
   end
 
   test "control: a client whose token does not cover a room never hears about it" do

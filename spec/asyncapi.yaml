@@ -562,25 +562,28 @@ components:
       headers: {type: object, required: [type], properties: {type: {const: 1}}}
       summary: Join a room, creating it if nobody has the name.
       description: >-
-        The creator sends the room's content, then `content` makes the room joinable. A later joiner must have the
-        same versions unless the creator asked to ignore them. Checked against the token on its own.
+        The creator sends the room's content, then `content` makes the room joinable. A client says which engine it is
+        and that engine's version, whatever the engine is; the strings are free text and may be empty. A later joiner
+        must speak the room's `mixer_version` and, when it names the same `engine` as the creator, have the same
+        `engine_version`. Clients of different engines are not compared on it. The creator can ask to ignore all
+        versions. Checked against the token on its own.
       x-wire:
         type: 1
         from: client
-        fields: [[room, string], [blender_version, string], [mixer_version, string], [ignore_version_check, bool], [generic_protocol, bool]]
+        fields: [[room, string], [engine, string], [engine_version, string], [mixer_version, string], [ignore_version_check, bool]]
       payload:
         type: object
         additionalProperties: false
-        required: [room, blender_version, mixer_version, ignore_version_check, generic_protocol]
+        required: [room, engine, engine_version, mixer_version, ignore_version_check]
         properties:
           room: {type: string, minLength: 1}
-          blender_version: {type: string}
-          mixer_version: {type: string}
+          engine: {type: string}
+          engine_version: {type: string}
+          mixer_version: {type: string, minLength: 1}
           ignore_version_check: {type: boolean}
-          generic_protocol: {type: boolean}
       examples:
         - headers: {type: 1}
-          payload: {room: demo, blender_version: 5.0.1, mixer_version: '1.0', ignore_version_check: false, generic_protocol: false}
+          payload: {room: demo, engine: godot, engine_version: '4.8', mixer_version: '1.0', ignore_version_check: false}
     joinRoomOk:
       name: joinRoomOk
       headers: {type: object, required: [type], properties: {type: {const: 1}}}
@@ -767,7 +770,7 @@ components:
               - {pattern: '^Trying to set joinable room .+ which is already joinable$'}
               - {pattern: '^Command [0-9]+ received but no handler for it on server$'}
               - {pattern: '^Room .+ not joinable yet\.$'}
-              - {pattern: '^Blender version mismatch with room .+: client version is .*, room version is .*$'}
+              - {pattern: '^Engine version mismatch with room .+: client version is .*, room version is .*$'}
               - {pattern: '^Mixer version mismatch with room .+: client version is .*, room version is .*$'}
               - {pattern: '^bad command packet: (not_a_command|bad_header|dirty_tail|wrong_length|missing_bulk|bad_body|bad_size|bad_type|bad_owner|bad_hlc|too_large|bad_digest)$'}
               - {pattern: '^something broke$'}
@@ -936,13 +939,13 @@ components:
           entities: {type: integer, minimum: 0}
     roomAttributes:
       type: object
-      required: [keep_open, blender_version, mixer_version, ignore_version_check, generic_protocol, command_count, byte_size, joinable]
+      required: [keep_open, engine, engine_version, mixer_version, ignore_version_check, command_count, byte_size, joinable]
       properties:
         keep_open: {type: boolean}
-        blender_version: {type: string}
+        engine: {type: string}
+        engine_version: {type: string}
         mixer_version: {type: string}
         ignore_version_check: {type: boolean}
-        generic_protocol: {type: boolean}
         command_count: {type: integer, minimum: 0}
         byte_size: {type: integer, minimum: 0}
         joinable: {type: boolean}

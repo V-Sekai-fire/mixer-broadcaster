@@ -67,11 +67,14 @@ defmodule MixerBroadcaster.Mixer.Core do
   # ---- the server's own commands ----
 
   defp dispatch(s, id, :join_room, _t, data, _cmd) do
+    # The protocol version is never empty. That also refuses the earlier five-field layout, which would
+    # otherwise read as a join with an empty one.
     with {:ok, name, r} <- Wire.read_string(data),
-         {:ok, bv, r} <- Wire.read_string(r),
+         {:ok, engine, r} <- Wire.read_string(r),
+         {:ok, engine_version, r} <- Wire.read_string(r),
          {:ok, mv, r} <- Wire.read_string(r),
-         {:ok, ignore, r} <- Wire.read_bool(r),
-         {:ok, generic, _} <- Wire.read_bool(r) do
+         {:ok, ignore, _} <- Wire.read_bool(r),
+         true <- mv != "" do
       cond do
         s.clients[id].room ->
           error(s, id, "Received join_room but room #{s.clients[id].room} is already joined")
@@ -80,7 +83,7 @@ defmodule MixerBroadcaster.Mixer.Core do
           error(s, id, "Not allowed in room #{name}")
 
         true ->
-          join(s, id, name, bv, mv, ignore, generic)
+          join(s, id, name, {engine, engine_version}, mv, ignore)
       end
     else
       _ -> error(s, id, "malformed JOIN_ROOM")
@@ -211,18 +214,20 @@ defmodule MixerBroadcaster.Mixer.Core do
 
   # ---- rooms ----
 
-  defp join(s, id, name, bv, mv, ignore, generic) do
+  # A client says which engine it is and the engine's version, whatever the engine is. Versions are compared
+  # only between clients of the same engine: a client of another one has no version of this engine to give.
+  defp join(s, id, name, {engine, ev}, mv, ignore) do
     case s.rooms do
       %{^name => room} ->
         cond do
           not room.joinable ->
             error(s, id, "Room #{name} not joinable yet.")
 
-          not room.ignore_version_check and room.blender_version != bv ->
+          not room.ignore_version_check and room.engine == engine and room.engine_version != ev ->
             error(
               s,
               id,
-              "Blender version mismatch with room #{name}: client version is #{bv}, room version is #{room.blender_version}"
+              "Engine version mismatch with room #{name}: client version is #{ev}, room version is #{room.engine_version}"
             )
 
           not room.ignore_version_check and room.mixer_version != mv ->
@@ -249,10 +254,10 @@ defmodule MixerBroadcaster.Mixer.Core do
       _ ->
         room = %{
           name: name,
-          blender_version: bv,
+          engine: engine,
+          engine_version: ev,
           mixer_version: mv,
           ignore_version_check: ignore,
-          generic_protocol: generic,
           keep_open: false,
           byte_size: 0,
           joinable: false,
@@ -381,10 +386,10 @@ defmodule MixerBroadcaster.Mixer.Core do
   defp attributes(room) do
     Map.merge(room.attrs, %{
       "keep_open" => room.keep_open,
-      "blender_version" => room.blender_version,
+      "engine" => room.engine,
+      "engine_version" => room.engine_version,
       "mixer_version" => room.mixer_version,
       "ignore_version_check" => room.ignore_version_check,
-      "generic_protocol" => room.generic_protocol,
       "command_count" => length(room.commands),
       "byte_size" => room.byte_size,
       "joinable" => room.joinable

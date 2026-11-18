@@ -19,7 +19,7 @@ defmodule MixerBroadcaster.Mixer.BridgeTest do
   defp join_data(room),
     do:
       Wire.string(room) <>
-        Wire.string("5") <> Wire.string("1") <> Wire.bool(false) <> Wire.bool(false)
+        Wire.string("godot") <> Wire.string("4.8") <> Wire.string("1") <> Wire.bool(false)
 
   # a stand-in for a hub session: registered in the room, it hears {:relay, from, packet}
   defp hub_listener(room) do

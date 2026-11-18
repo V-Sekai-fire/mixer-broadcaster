@@ -98,7 +98,7 @@ defmodule MixerBroadcaster.Mixer.SessionTest do
       packet(
         Wire.type(:join_room),
         Wire.string(room) <>
-          Wire.string("5") <> Wire.string("1") <> Wire.bool(false) <> Wire.bool(false)
+          Wire.string("godot") <> Wire.string("4.8") <> Wire.string("1") <> Wire.bool(false)
       )
 
   # the commands in the stream sends of an action list
