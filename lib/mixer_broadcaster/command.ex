@@ -27,8 +27,8 @@ defmodule MixerBroadcaster.Command do
   @doc """
   Data over `@max_bulk` bytes does not go in the chunk store whole: the sender chunks it with desync and the packet
   names the index (mode 2: the SHA-256 of the desync index, as a mesh is named). The relay never reads that data, so
-  inside it a mode 2 command is carried as `index(digest, key)`: this marker, the 32 byte digest and the sender's key
-  (the key came from the data, which the relay never sees, and must survive so a newer command still replaces an older one). `pack/5` turns the
+  inside it a mode 2 command is carried as `index(digest, key)`: this marker, the 32 byte digest and the command's key
+  (this is not a credential. The key came from the data, which the relay never sees, and must survive so a newer command still replaces an older one). `pack/5` turns the
   marker back into mode 2, and `unpack/2` makes it from mode 2.
   """
   @spec index(<<_::256>>, non_neg_integer()) :: binary()

@@ -113,8 +113,10 @@ channels:
       in datagrams. A packet the relay cannot read, and a command it refuses, is answered with `sendErrorOut`, never
       a crash. Every command has a type number and data laid out by its `x-wire`; a type above 100 that is not listed
       is a room command, stored for late joiners and forwarded to the room's other members. Data too big for the chunk
-      store goes by desync index (a mode 2 command: the SHA-256 of the index, as a mesh is named); the relay never reads
-      it and carries it as `mixer-index:` || the 32-byte digest || the sender's key (u32, little-endian).
+      store goes by desync index. That is a mode 2 command, and its data is the SHA-256 of the index, the name a mesh
+      has. The relay never reads the index or the bulk data. It carries only a pointer: `mixer-index:` || the 32-byte
+      digest || the command's key (u32, little-endian). The pointer holds no key, certificate or token. The token
+      and the signature in `auth` admit a client, and the `read` right in the token controls the `mesh` request.
     bindings:
       x-webtransport:
         reliable: commands on one bidirectional stream, 100-byte packets back to back
@@ -150,8 +152,10 @@ channels:
       in datagrams. A packet the relay cannot read, and a command it refuses, is answered with `sendErrorOut`, never
       a crash. Every command has a type number and data laid out by its `x-wire`; a type above 100 that is not listed
       is a room command, stored for late joiners and forwarded to the room's other members. Data too big for the chunk
-      store goes by desync index (a mode 2 command: the SHA-256 of the index, as a mesh is named); the relay never reads
-      it and carries it as `mixer-index:` || the 32-byte digest || the sender's key (u32, little-endian).
+      store goes by desync index. That is a mode 2 command, and its data is the SHA-256 of the index, the name a mesh
+      has. The relay never reads the index or the bulk data. It carries only a pointer: `mixer-index:` || the 32-byte
+      digest || the command's key (u32, little-endian). The pointer holds no key, certificate or token. The token
+      and the signature in `auth` admit a client, and the `read` right in the token controls the `mesh` request.
     bindings:
       x-webtransport:
         reliable: commands on one bidirectional stream, 100-byte packets back to back
