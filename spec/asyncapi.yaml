@@ -762,16 +762,16 @@ components:
             type: string
             description: The relay's own messages are listed. A client's report is free text; the last branch is the one the tests send.
             anyOf:
-              - {pattern: '^Received join_room but room .+ is already joined$'}
-              - {pattern: '^Not allowed in room .+$'}
-              - {pattern: '^Received leave_room but no room is joined$'}
-              - {pattern: '^malformed (JOIN_ROOM|SET_CLIENT_CUSTOM_ATTRIBUTES|SET_ROOM_CUSTOM_ATTRIBUTES|SET_ROOM_KEEP_OPEN|entity_state|entity_remove)$'}
-              - {pattern: '^Unjoined client trying to set room joinable$'}
-              - {pattern: '^Trying to set joinable room .+ which is already joinable$'}
-              - {pattern: '^Command [0-9]+ received but no handler for it on server$'}
-              - {pattern: '^Room .+ not joinable yet\.$'}
-              - {pattern: '^Engine version mismatch with room .+: client version is .*, room version is .*$'}
-              - {pattern: '^Mixer version mismatch with room .+: client version is .*, room version is .*$'}
+              - {pattern: '^You cannot join a room\. You are already in room .+\.$'}
+              - {pattern: '^You are not allowed in room .+\.$'}
+              - {pattern: '^You cannot leave a room\. You are not in a room\.$'}
+              - {pattern: '^The (JOIN_ROOM|SET_CLIENT_CUSTOM_ATTRIBUTES|SET_ROOM_CUSTOM_ATTRIBUTES|SET_ROOM_KEEP_OPEN|entity_state|entity_remove) command is malformed\.$'}
+              - {pattern: '^You must join a room before you can make it joinable\.$'}
+              - {pattern: '^Room .+ is already joinable\.$'}
+              - {pattern: '^The server has no handler for command [0-9]+\.$'}
+              - {pattern: '^Room .+ is not joinable yet\.$'}
+              - {pattern: '^The engine version does not match room .+\. Your version is .*\. The room version is .*\.$'}
+              - {pattern: '^The Mixer version does not match room .+\. Your version is .*\. The room version is .*\.$'}
               - {pattern: '^bad command packet: (not_a_command|bad_header|dirty_tail|wrong_length|missing_bulk|bad_body|bad_size|bad_type|bad_owner|bad_hlc|too_large|bad_digest)$'}
               - {pattern: '^something broke$'}
     roomCommand:
@@ -782,7 +782,7 @@ components:
         Stored for late joiners and passed to the room's other members. A newer entity state replaces the older one of
         the same entity (its first four bytes) and a removal drops it, so a room's content stays one pose per entity.
         An entity removal (211, used 5 bytes or more) is not stored itself. Consecutive commands of one type between 201 and 998 that name the same path replace each other. Types 205,
-        139 and 1000 are passed on and never stored. A malformed entity command is answered `malformed ...`.
+        139 and 1000 are passed on and never stored. The relay answers a malformed entity command with `The <kind> command is malformed.`
       x-wire: {typeFrom: payload, from: client, fields: [[data, bytes]]}
       payload:
         type: object
@@ -807,7 +807,7 @@ components:
     unknownCommand:
       name: unknownCommand
       headers: {type: object, required: [type], properties: {type: {type: integer, minimum: 1, maximum: 100, not: {enum: [1, 3, 4, 5, 7, 11, 12, 14, 15, 16, 17, 18]}}}}
-      summary: A type of 100 or less that is not listed. Answered `Command N received but no handler for it on server`.
+      summary: A type of 100 or less that is not listed. The relay answers `The server has no handler for command N.`
       x-wire: {typeFrom: payload, from: client, fields: [[data, bytes]]}
       payload:
         type: object

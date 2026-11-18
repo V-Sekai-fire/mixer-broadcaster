@@ -77,16 +77,16 @@ defmodule MixerBroadcaster.Mixer.Core do
          true <- mv != "" do
       cond do
         s.clients[id].room ->
-          error(s, id, "Received join_room but room #{s.clients[id].room} is already joined")
+          error(s, id, "You cannot join a room. You are already in room #{s.clients[id].room}.")
 
         not s.clients[id].allow.(name) ->
-          error(s, id, "Not allowed in room #{name}")
+          error(s, id, "You are not allowed in room #{name}.")
 
         true ->
           join(s, id, name, {engine, engine_version}, mv, ignore)
       end
     else
-      _ -> error(s, id, "malformed JOIN_ROOM")
+      _ -> error(s, id, "The JOIN_ROOM command is malformed.")
     end
   end
 
@@ -95,7 +95,7 @@ defmodule MixerBroadcaster.Mixer.Core do
       {s, outs} = leave(s, id)
       {s, outs ++ [{id, Wire.encode(:leave_room)}]}
     else
-      error(s, id, "Received leave_room but no room is joined")
+      error(s, id, "You cannot leave a room. You are not in a room.")
     end
   end
 
@@ -136,7 +136,7 @@ defmodule MixerBroadcaster.Mixer.Core do
   defp dispatch(s, id, :set_client_custom_attributes, _t, data, _c) do
     case Wire.read_json(data) do
       {:ok, %{} = attrs, _} -> set_client_attrs(s, id, attrs)
-      _ -> error(s, id, "malformed SET_CLIENT_CUSTOM_ATTRIBUTES")
+      _ -> error(s, id, "The SET_CLIENT_CUSTOM_ATTRIBUTES command is malformed.")
     end
   end
 
@@ -153,7 +153,7 @@ defmodule MixerBroadcaster.Mixer.Core do
           {s, []}
       end
     else
-      _ -> error(s, id, "malformed SET_ROOM_CUSTOM_ATTRIBUTES")
+      _ -> error(s, id, "The SET_ROOM_CUSTOM_ATTRIBUTES command is malformed.")
     end
   end
 
@@ -176,7 +176,7 @@ defmodule MixerBroadcaster.Mixer.Core do
           {s, []}
       end
     else
-      _ -> error(s, id, "malformed SET_ROOM_KEEP_OPEN")
+      _ -> error(s, id, "The SET_ROOM_KEEP_OPEN command is malformed.")
     end
   end
 
@@ -185,10 +185,10 @@ defmodule MixerBroadcaster.Mixer.Core do
   defp dispatch(s, id, :content, _t, _d, _c) do
     case s.clients[id].room && s.rooms[s.clients[id].room] do
       nil ->
-        error(s, id, "Unjoined client trying to set room joinable")
+        error(s, id, "You must join a room before you can make it joinable.")
 
       %{joinable: true, name: name} ->
-        error(s, id, "Trying to set joinable room #{name} which is already joinable")
+        error(s, id, "Room #{name} is already joinable.")
 
       room ->
         s = put_room(s, %{room | joinable: true})
@@ -201,7 +201,7 @@ defmodule MixerBroadcaster.Mixer.Core do
   defp dispatch(s, id, name, type, _data, cmd) do
     cond do
       type <= Wire.type(:command) ->
-        error(s, id, "Command #{type} received but no handler for it on server")
+        error(s, id, "The server has no handler for command #{type}.")
 
       is_nil(s.clients[id].room) ->
         {s, []}
@@ -221,20 +221,20 @@ defmodule MixerBroadcaster.Mixer.Core do
       %{^name => room} ->
         cond do
           not room.joinable ->
-            error(s, id, "Room #{name} not joinable yet.")
+            error(s, id, "Room #{name} is not joinable yet.")
 
           not room.ignore_version_check and room.engine == engine and room.engine_version != ev ->
             error(
               s,
               id,
-              "Engine version mismatch with room #{name}: client version is #{ev}, room version is #{room.engine_version}"
+              "The engine version does not match room #{name}. Your version is #{ev}. The room version is #{room.engine_version}."
             )
 
           not room.ignore_version_check and room.mixer_version != mv ->
             error(
               s,
               id,
-              "Mixer version mismatch with room #{name}: client version is #{mv}, room version is #{room.mixer_version}"
+              "The Mixer version does not match room #{name}. Your version is #{mv}. The room version is #{room.mixer_version}."
             )
 
           true ->
@@ -321,7 +321,7 @@ defmodule MixerBroadcaster.Mixer.Core do
       commands = if kind == :entity_state, do: [cmd | kept], else: kept
       forward(s, id, room, commands, cmd)
     else
-      error(s, id, "malformed #{kind}")
+      error(s, id, "The #{kind} command is malformed.")
     end
   end
 

@@ -510,9 +510,9 @@ defmodule MixerBroadcaster.FrontierTest do
       2 ->
         a = commander(doc, relay, [room])
         a = send_cmd(doc, a, "joinRoom", example(doc, "joinRoom", %{"room" => "outside-#{room}"}))
-        assert errors(drain(doc, a)) == ["Not allowed in room outside-#{room}"]
+        assert errors(drain(doc, a)) == ["You are not allowed in room outside-#{room}."]
         a = send_cmd(doc, a, "unknownCommand")
-        assert errors(drain(doc, a)) == ["Command 2 received but no handler for it on server"]
+        assert errors(drain(doc, a)) == ["The server has no handler for command 2."]
         a = send_pkt(a, :binary.copy(<<0>>, 100))
         assert [m] = errors(drain(doc, a))
         assert m =~ "bad command packet"
