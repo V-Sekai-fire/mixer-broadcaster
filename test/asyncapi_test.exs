@@ -724,7 +724,7 @@ defmodule MixerBroadcaster.AsyncApiTest do
     assert [%{"demo" => %{"joinable" => false}}] =
              for({"b", "roomList", %{"rooms" => r}} <- ask.("b", "listRooms", %{}), do: r)
 
-    assert errors.(ask.("b", "joinRoom", %{})) == ["Room demo not joinable yet."]
+    assert errors.(ask.("b", "joinRoom", %{})) == ["Room demo is not joinable yet."]
 
     assert Enum.any?(
              ask.("a", "content", %{}),
@@ -732,15 +732,15 @@ defmodule MixerBroadcaster.AsyncApiTest do
            )
 
     assert errors.(ask.("a", "content", %{})) == [
-             "Trying to set joinable room demo which is already joinable"
+             "Room demo is already joinable."
            ]
 
-    assert errors.(ask.("b", "content", %{})) == ["Unjoined client trying to set room joinable"]
+    assert errors.(ask.("b", "content", %{})) == ["You must join a room before you can make it joinable."]
 
     assert [m] = errors.(ask.("b", "joinRoom", %{"mixer_version" => "9"}))
-    assert m =~ "Mixer version mismatch"
+    assert m =~ "The Mixer version does not match"
     assert [m] = errors.(ask.("b", "joinRoom", %{"engine_version" => "4.0"}))
-    assert m =~ "Engine version mismatch"
+    assert m =~ "The engine version does not match"
 
     # a late joiner gets the stored commands, in order, between clear_content and join_room
     ask.("a", "roomCommand", %{"type" => 150, "data" => "0a0b"})
@@ -753,11 +753,11 @@ defmodule MixerBroadcaster.AsyncApiTest do
              &match?({"b", "roomCommandOut", %{"type" => 150, "data" => "0a0b"}}, &1)
            )
 
-    assert errors.(ask.("b", "joinRoom", %{})) |> hd() =~ "is already joined"
-    assert errors.(ask.("c", "joinRoom", %{})) == ["Not allowed in room demo"]
+    assert errors.(ask.("b", "joinRoom", %{})) |> hd() =~ "You are already in room"
+    assert errors.(ask.("c", "joinRoom", %{})) == ["You are not allowed in room demo."]
 
     assert errors.(run.("c", %{type: 1, id: 0, data: <<1>>}, "joinRoom")) == [
-             "malformed JOIN_ROOM"
+             "The JOIN_ROOM command is malformed."
            ]
 
     # an entity is kept once; a removal drops it; a malformed one is refused
@@ -777,11 +777,11 @@ defmodule MixerBroadcaster.AsyncApiTest do
            )
 
     assert errors.(ask.("a", "roomCommand", %{"type" => 210, "data" => "0102"})) == [
-             "malformed entity_state"
+             "The entity_state command is malformed."
            ]
 
     assert errors.(ask.("a", "unknownCommand", %{})) == [
-             "Command 2 received but no handler for it on server"
+             "The server has no handler for command 2."
            ]
 
     # attributes, names, keep-open, the lists, the id
@@ -800,15 +800,15 @@ defmodule MixerBroadcaster.AsyncApiTest do
     ask.("a", "setRoomKeepOpen", %{})
 
     assert errors.(run.("a", %{type: 17, id: 0, data: <<1>>}, "setRoomKeepOpen")) == [
-             "malformed SET_ROOM_KEEP_OPEN"
+             "The SET_ROOM_KEEP_OPEN command is malformed."
            ]
 
     assert errors.(
              run.("a", %{type: 15, id: 0, data: Wire.string("[1]")}, "setClientCustomAttributes")
-           ) == ["malformed SET_CLIENT_CUSTOM_ATTRIBUTES"]
+           ) == ["The SET_CLIENT_CUSTOM_ATTRIBUTES command is malformed."]
 
     assert errors.(run.("a", %{type: 16, id: 0, data: <<>>}, "setRoomCustomAttributes")) == [
-             "malformed SET_ROOM_CUSTOM_ATTRIBUTES"
+             "The SET_ROOM_CUSTOM_ATTRIBUTES command is malformed."
            ]
 
     assert [%{"id" => "a"}] =
@@ -825,7 +825,7 @@ defmodule MixerBroadcaster.AsyncApiTest do
            )
 
     # leaving, an error for a client with no room, disconnecting, deleting
-    assert errors.(ask.("c", "leaveRoom", %{})) == ["Received leave_room but no room is joined"]
+    assert errors.(ask.("c", "leaveRoom", %{})) == ["You cannot leave a room. You are not in a room."]
     assert Enum.any?(ask.("b", "leaveRoom", %{}), &match?({"b", "leaveRoomOk", _}, &1))
     ask.("b", "joinRoom", %{})
     %{core: core} = Process.get(:t)
