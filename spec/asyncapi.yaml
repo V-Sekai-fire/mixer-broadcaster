@@ -214,7 +214,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/hello'}]
-    summary: Ask for a nonce (before admission) or for the current chart (after). Sent on a stream, the snapshot is also sent as a datagram.
+    summary: Before admission, ask for a nonce. After admission, ask for the current chart. A stream request also gets the snapshot as a datagram.
     reply:
       channel: {$ref: '#/channels/room'}
       messages:
@@ -225,14 +225,14 @@ operations:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/hello'}]
-    summary: The same `hello` as a datagram. A request that came as a datagram is answered as datagrams (a stream reply is never sent), so the snapshot comes back as a datagram.
+    summary: Send `hello` as a datagram. The relay answers a datagram with datagrams only, so the snapshot comes back as a datagram.
     bindings:
       x-webtransport: {delivery: datagram}
   roomAuth:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/auth'}]
-    summary: Prove the key. Every refusal reads the same, and the third failed attempt locks the session.
+    summary: Prove the key. Every refusal looks the same. The third failed attempt locks the session.
     reply:
       channel: {$ref: '#/channels/room'}
       messages:
@@ -242,7 +242,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/set'}]
-    summary: Change one patch of the chart; the other sessions of the room get the same message as a datagram.
+    summary: Change one patch of the chart. The relay sends the same message as a datagram to the other sessions of the room.
     reply:
       channel: {$ref: '#/channels/room'}
       messages:
@@ -252,14 +252,14 @@ operations:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/set'}]
-    summary: The same `set` as a datagram. It is applied and forwarded; its `ok` is dropped, but a refusal comes back as a datagram.
+    summary: Send `set` as a datagram. The relay applies it and forwards it. It sends no `ok`, but a refusal comes back as a datagram.
     bindings:
       x-webtransport: {delivery: datagram}
   roomMesh:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/mesh'}]
-    summary: Ask for presigned URLs of a mesh a pose in this room names. Needs the `read` right.
+    summary: Ask for presigned URLs of a mesh. A pose in this room must name the mesh. Needs the `read` right.
     reply:
       channel: {$ref: '#/channels/room'}
       messages:
@@ -270,7 +270,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/room'}
     messages: [{$ref: '#/channels/room/messages/entityPacket'}]
-    summary: A pose. The relay stamps its hybrid logical clock and forwards it to the room. On a stream it is answered `ok` or `bad_packet`; as a datagram, neither is answered.
+    summary: Send a pose. The relay stamps its hybrid logical clock and forwards it to the room. On a stream, the relay answers `ok` or `bad_packet`. On a datagram, it sends no answer.
     reply:
       channel: {$ref: '#/channels/room'}
       messages:
@@ -282,7 +282,7 @@ operations:
     messages:
       - $ref: '#/channels/room/messages/entityPacket'
       - $ref: '#/channels/room/messages/set'
-    summary: What the other sessions of the room receive, and what a late joiner gets replayed.
+    summary: Sent to the other sessions of the room. A late joiner gets the last packet of each entity replayed.
   commandsHello:
     action: receive
     channel: {$ref: '#/channels/commandsIn'}
@@ -342,7 +342,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/commandsIn'}
     messages: [{$ref: '#/channels/commandsIn/messages/entityPacket'}]
-    summary: A pose as a datagram, stamped and passed to the other clients of the room. Anything but 100 bytes is ignored.
+    summary: Send a pose as a datagram. The relay stamps it and passes it to the other clients of the room. It ignores a packet that is not 100 bytes.
     bindings:
       x-webtransport: {delivery: datagram}
   commandsPoseOut:
@@ -356,7 +356,7 @@ operations:
     action: receive
     channel: {$ref: '#/channels/rooms'}
     messages: []
-    summary: Demo only. The rooms with a player in them or a remembered entity.
+    summary: Demo only. List the rooms that have a player or a remembered entity.
     bindings:
       http: {method: GET}
     reply:
@@ -453,7 +453,7 @@ components:
         - payload: {t: challenge, nonce: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA}
     auth:
       name: auth
-      summary: The token, the player's P-256 public key and the signature over the nonce.
+      summary: The token, the player's P-256 public key, and a signature over the nonce.
       description: >-
         All three fields are unpadded base64url. The key is the 65-byte uncompressed point (04 || X || Y); its SHA-256
         is the thumbprint the token names. The signature is 64 bytes, r || s, ECDSA P-256 with SHA-256, over
@@ -480,7 +480,7 @@ components:
       payload: {$ref: '#/components/schemas/snapshot'}
     mesh:
       name: mesh
-      summary: A request for the download URLs of a mesh, named by the SHA-256 of its desync index.
+      summary: A request for the download URLs of a mesh. The digest is the SHA-256 of the mesh's desync index.
       payload: {$ref: '#/components/schemas/mesh'}
       examples:
         - payload: {t: mesh, digest: '0000000000000000000000000000000000000000000000000000000000000000'}
@@ -490,10 +490,10 @@ components:
       payload: {$ref: '#/components/schemas/meshGrant'}
     meshMore:
       name: meshMore
-      summary: A later piece of a mesh reply that did not fit one datagram.
+      summary: A later piece of a mesh reply. The reply did not fit in one datagram.
       description: >-
         A reply to a request that came as a datagram is cut into pieces of about 900 bytes of JSON each. The first is
-        the `meshGrant` with as many chunk URLs as fit and `n`, the total; each later piece is one of these, whose
+        the `meshGrant` with as many chunk URLs as fit and `n`, the total. Each later piece is one of these. Its
         `from` says where its URLs start. A reply that fits goes out whole and has no `n`.
       payload: {$ref: '#/components/schemas/meshMore'}
     ok:
@@ -777,7 +777,7 @@ components:
     roomCommand:
       name: roomCommand
       headers: {type: object, required: [type], properties: {type: {type: integer, minimum: 101, maximum: 65535}}}
-      summary: Any command with a type above 100 that is not listed, such as an entity state (210, 100 bytes) or its removal (211, 4 bytes).
+      summary: Any command with a type above 100 that is not listed. Examples are an entity state (210, 100 bytes) and its removal (211, 4 bytes).
       description: >-
         Stored for late joiners and passed to the room's other members. A newer entity state replaces the older one of
         the same entity (its first four bytes) and a removal drops it, so a room's content stays one pose per entity.
